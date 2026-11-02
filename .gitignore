@@ -1,0 +1,54 @@
+.venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+*.py[cod]
+
+# Additional Python virtual environments
+venv/
+env/
+
+# Private environment files; keep public example templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local provider/service overrides (not public TOML configurations)
+*.local.toml
+
+# Logs
+*.log
+logs/
+
+# Test, coverage, and analysis caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local editor settings (none currently shared in this project)
+.idea/
+.vscode/
+
+# Temporary and backup files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Windows generated files
+Thumbs.db
+Desktop.ini
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# Temporary desktop observations and test outputs at the project root
+/tmp/screenshots/
+/test-artifacts/

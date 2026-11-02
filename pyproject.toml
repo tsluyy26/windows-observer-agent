@@ -1,0 +1,11 @@
+[project]
+name = "windows-observer-agent"
+version = "0.4.1"
+description = "Windows desktop observation via Mock, Replay and authenticated local MCP"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[project.optional-dependencies]
+live = ["mcp==2.3.0", "httpx2==2.16.0"]
+llm = ["openai==3.42.0"]

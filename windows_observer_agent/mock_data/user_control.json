@@ -1,0 +1,16 @@
+{
+  "mock": true,
+  "schema": "woa.mock.v1",
+  "description": "Mock: 用户持有控制权，没有采集真实桌面。",
+  "observed_at": "2026-11-01T10:01:00+08:00",
+  "control_status": {"success": true, "owner": "user"},
+  "snapshot": {
+    "success": true,
+    "desktop_id": "mock-desktop-1",
+    "monitors": [{"id": "mock-monitor-1", "width": 1920, "height": 1080}],
+    "active_window_id": null,
+    "windows": [],
+    "ui_tree_truncated": false,
+    "screenshot_ref": "mock://screenshot/not-captured"
+  }
+}

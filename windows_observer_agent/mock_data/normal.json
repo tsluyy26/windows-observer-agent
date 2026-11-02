@@ -1,0 +1,28 @@
+{
+  "mock": true,
+  "schema": "woa.mock.v1",
+  "description": "完全虚构的教学 Mock。不是 Windows-MCP 0.8.8 的真实返回格式。",
+  "observed_at": "2026-11-01T10:00:00+08:00",
+  "control_status": {"success": true, "owner": "agent", "error": null},
+  "snapshot": {
+    "success": true,
+    "error": null,
+    "desktop_id": "mock-desktop-1",
+    "monitors": [{"id": "mock-monitor-1", "width": 1920, "height": 1080}],
+    "active_window_id": "mock-notepad",
+    "ui_tree_truncated": false,
+    "screenshot_ref": "mock://screenshot/not-captured",
+    "windows": [
+      {
+        "id": "mock-notepad",
+        "title": "项目说明 - 记事本",
+        "app": "notepad.exe",
+        "controls": [
+          {"id": "mock-new", "name": "新建标签页", "type": "Button", "provider": "Mock.UIAutomation", "properties": {"enabled": true, "visible": true}},
+          {"id": "mock-editor", "name": "文本编辑区域", "type": "Edit", "provider": "Mock.UIAutomation", "properties": {"enabled": true, "content_observed": false}}
+        ]
+      },
+      {"id": "mock-browser", "title": "学习资料 - 模拟浏览器", "app": "mock-browser.exe", "controls": []}
+    ]
+  }
+}

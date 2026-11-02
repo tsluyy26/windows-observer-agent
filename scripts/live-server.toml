@@ -1,0 +1,17 @@
+# 本项目专用、无密钥的 0.8.8 服务配置；Token 只通过子进程环境注入。
+[server]
+transport = "streamable-http"
+host = "127.0.0.1"
+allow_insecure_remote = false
+stateless_http = false
+
+[security]
+ip_allowlist = ["127.0.0.1"]
+cors_origins = []
+
+[tools]
+exclude = []
+
+[control]
+mouse_takeover_units = 120
+mouse_takeover_pixels = 120

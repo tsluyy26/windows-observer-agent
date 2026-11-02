@@ -1,0 +1,16 @@
+{
+  "mock": true,
+  "schema": "woa.mock.v1",
+  "description": "Mock: 本次未观察到记事本，不说明它未安装或未运行。",
+  "observed_at": "2026-11-01T10:02:00+08:00",
+  "control_status": {"success": true, "owner": "agent"},
+  "snapshot": {
+    "success": true,
+    "desktop_id": "mock-desktop-1",
+    "monitors": [{"id": "mock-monitor-1", "width": 1920, "height": 1080}],
+    "active_window_id": "mock-browser",
+    "windows": [{"id": "mock-browser", "title": "模拟浏览器", "app": "mock-browser.exe", "controls": []}],
+    "ui_tree_truncated": false,
+    "screenshot_ref": "mock://screenshot/not-captured"
+  }
+}

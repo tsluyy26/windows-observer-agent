@@ -1,0 +1,84 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONUTF8: '1'
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  offline-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.13.6'
+          enable-cache: false
+
+      - name: Install pinned Python
+        run: |
+          $version = (Get-Content -LiteralPath .python-version -Raw).Trim()
+          uv python install $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install locked test dependencies
+        run: |
+          uv sync --locked --extra live --extra llm
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run complete offline suite
+        run: |
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 is required' }
+          # Same discovery as: python -B -m unittest discover -s tests -v
+          # A result wrapper additionally reports counts and rejects skipped tests.
+          @'
+          import importlib.metadata
+          import pathlib
+          import sys
+          import unittest
+
+          root = pathlib.Path.cwd().resolve()
+          import windows_observer_agent
+          if pathlib.Path(windows_observer_agent.__file__).resolve().parent != root / "windows_observer_agent":
+              raise RuntimeError("Tests must import this checkout")
+          for name, expected in {"mcp": "2.3.0", "httpx2": "2.16.0", "openai": "3.42.0"}.items():
+              if importlib.metadata.version(name) != expected:
+                  raise RuntimeError("Missing or unexpected test SDK: " + name)
+          pinned = (root / ".python-version").read_text(encoding="utf-8").strip()
+          if ".".join(map(str, sys.version_info[:3])) != pinned:
+              raise RuntimeError("Python differs from .python-version")
+
+          suite = unittest.defaultTestLoader.discover("tests")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          total = result.testsRun
+          failures, errors, skipped = len(result.failures), len(result.errors), len(result.skipped)
+          expected_failures = len(result.expectedFailures)
+          unexpected_successes = len(result.unexpectedSuccesses)
+          passed = total - failures - errors - skipped - expected_failures - unexpected_successes
+          print(f"TEST_COUNTS total={total} passed={passed} failures={failures} errors={errors} skipped={skipped}", flush=True)
+          print(f"expected_failures={expected_failures} unexpected_successes={unexpected_successes}", flush=True)
+          sys.exit(0 if total > 0 and result.wasSuccessful() and not skipped and not expected_failures else 1)
+          '@ | & .\.venv\Scripts\python.exe -B -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

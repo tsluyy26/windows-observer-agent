@@ -1,0 +1,82 @@
+{
+  "schema": "woa.replay.v1",
+  "redacted": true,
+  "provenance": "real-redacted-existing-codex-connection",
+  "installed_package_version": "0.8.8",
+  "recorded_at": "2026-11-01 10:17:38 UTC",
+  "notes": [
+    "Client UTC request/receipt times, not server capture timestamps.",
+    "Snapshot text is JSON-serialized list[str]; Screenshot text is plain.",
+    "Titles, values, handles and desktop names replaced. Image data discarded. Recaptured after correcting capture-side handle alias generation."
+  ],
+  "records": [
+    {
+      "tool": "ControlStatus",
+      "arguments": {},
+      "started_at": "2026-11-01T10:17:38+00:00",
+      "observed_at": "2026-11-01T10:17:38+00:00",
+      "time_basis": "client-received-not-server-capture",
+      "redacted": true,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"state\":\"user\",\"generation\":24,\"wait_seconds\":9.08342509996146}"
+          }
+        ],
+        "structuredContent": {
+          "state": "user",
+          "generation": 24,
+          "wait_seconds": 9.08342509996146
+        },
+        "isError": false
+      }
+    },
+    {
+      "tool": "Snapshot",
+      "arguments": {
+        "use_vision": false,
+        "use_dom": false,
+        "use_ui_tree": true
+      },
+      "started_at": "2026-11-01T10:17:38+00:00",
+      "observed_at": "2026-11-01T10:17:38+00:00",
+      "time_basis": "client-received-not-server-capture",
+      "redacted": true,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": ""
+          }
+        ],
+        "isError": true
+      }
+    },
+    {
+      "tool": "Screenshot",
+      "arguments": {
+        "use_annotation": false,
+        "region": [
+          0,
+          0,
+          1,
+          1
+        ]
+      },
+      "started_at": "2026-11-01T10:17:38+00:00",
+      "observed_at": "2026-11-01T10:17:38+00:00",
+      "time_basis": "client-received-not-server-capture",
+      "redacted": true,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": ""
+          }
+        ],
+        "isError": true
+      }
+    }
+  ]
+}
