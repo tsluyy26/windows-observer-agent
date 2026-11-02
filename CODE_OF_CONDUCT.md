@@ -4,7 +4,7 @@
 
 Windows Observer Agent aims to be a respectful place for people learning or building with Python and AI agents. Experience level, background, identity, and a different technical opinion must not be reasons to exclude someone.
 
-The project currently has one maintainer, tsluyy26. A public repository and a dedicated conduct-reporting route have not been established.
+The project currently has one maintainer, tsluyy26. The repository is public; a dedicated conduct-reporting route has not been established.
 
 ## Expected Behavior
 

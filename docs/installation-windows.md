@@ -63,7 +63,14 @@ uv python install 3.14.10
 
 ## 3. 获取项目源码
 
-当前公开 GitHub 仓库尚未创建，没有可提供的下载 URL。先使用维护者提供的完整源码文件夹；未来仓库公开后可由用户自行下载 ZIP。下载源码需要网络，已有本地副本则不需要。不要使用虚构的 clone 地址。
+公开仓库为 [tsluyy26/windows-observer-agent](https://github.com/tsluyy26/windows-observer-agent)。可在 Code → Download ZIP 下载并解压，或在已有 Git 的 PowerShell 中由用户自行执行（需要网络）：
+
+~~~powershell
+git clone https://github.com/tsluyy26/windows-observer-agent.git
+Set-Location windows-observer-agent
+~~~
+
+这里提供克隆示例，不代表本轮助手执行过命令。维护者确认首次 Windows CI 已通过 151 项离线测试；这不等于普通用户干净 Windows 安装或 wheel/exe 分发已验收。
 
 解压后应看到 README.md、pyproject.toml、uv.lock、windows_observer_agent、tests、examples 和 docs。不要复制维护者的 .venv、私密配置、日志或原始截图。
 

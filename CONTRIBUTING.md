@@ -4,7 +4,7 @@
 
 Windows Observer Agent turns Mock, redacted Replay, or explicitly enabled Windows-MCP observations into a Scene Model and a conditional plan. Version 0.4.1 observes and plans only: there is no desktop action executor, visual understanding, or verified wheel/exe distribution.
 
-The project is maintained by tsluyy26. A public project repository has not been created yet. There is currently no project Issue/PR URL, branch protection, or assigned-review system. A CI workflow is configured locally; remote acceptance is pending. The future workflow below is not a claim that those services are available.
+The project is maintained by tsluyy26. The public repository is [tsluyy26/windows-observer-agent](https://github.com/tsluyy26/windows-observer-agent), with main as its default branch. The maintainer confirmed the first push-triggered Windows CI run passed all 151 offline tests on 2026-11-02. Branch protection and required-review settings have not been verified.
 
 ## Ways to Contribute
 
@@ -73,7 +73,7 @@ If a task permits only inspection, use an already prepared interpreter and check
 
 Setup downloads tools/dependencies; the test phase uses Mock, Replay and in-memory transports, not live desktop/model services. Mocked PowerShell safety tests may load script functions, but never invoke the real Live launcher entrypoint. No personal API keys or MCP tokens belong in GitHub Secrets for this job. Checkout uses only the platform's read-only repository token, without persisting credentials.
 
-This configuration has not run on GitHub yet. Once the maintainer creates the repository and pushes it, inspect Windows CI / offline-tests in Actions and future PR Checks. A local pass and a green remote check are separate evidence. Branch protection is not configured by this file.
+The maintainer confirmed the Initial commit #1 run succeeded: 151 passed, 0 failures, errors or skips (53 seconds). Inspect Windows CI / offline-tests in Actions for each subsequent push and check PR results separately; PR-triggered execution has not been verified by that first push run. A local pass and a green remote check are separate evidence. Branch protection is not configured by this file.
 
 ## Coding Guidelines
 
@@ -91,7 +91,7 @@ No formatter, linter, or pre-commit configuration is currently enforced by this 
 
 ## Pull Request Guidelines
 
-Once a public repository exists, human contributors may fork it, create a branch, make focused commits, and propose a PR. The maintainer will announce the actual destination and workflow; no branch name, approval gate, CLA bot, or CI requirement is invented here.
+Human contributors may fork the public repository, create a branch, make focused commits, and propose a PR against main. No required-review gate, CLA bot or branch-protection rule is asserted here.
 
 Explain the problem, change scope, validation performed and its limits, documentation updates, and security/compatibility effects. For an API adapter, state the exact SDK/interface and whether evidence is mocked or from an authorized real integration. Do not add personal machine paths or private desktop captures as proof.
 

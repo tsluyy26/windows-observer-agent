@@ -2,13 +2,13 @@
 
 This file uses the basic organization of [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
 
-The project has not been publicly released. The version sections below are reconstructed development milestones, not GitHub Releases or verified publication dates. Their design records are dated 2026-11-01; no release dates are invented. An Unreleased entry describes implemented changes awaiting publication, not planned functionality.
+The source repository is now public. No formal GitHub Release is established by that fact. The version sections below are reconstructed development milestones, not GitHub Releases or verified publication dates. Their design records are dated 2026-11-01; no release dates are invented. An Unreleased entry describes implemented changes awaiting publication, not planned functionality.
 
 ## Unreleased
 
 ### CI
 
-- Added a least-privilege Windows offline-test workflow with pinned Actions, locked live/llm extras and explicit test counts. Configuration is statically reviewed; GitHub Runner acceptance is pending.
+- Added a least-privilege Windows offline-test workflow with pinned Actions, locked live/llm extras and explicit test counts. The maintainer confirmed the first push-triggered Windows CI run passed 151 tests with no failures, errors or skips on 2026-11-02; this is remote offline acceptance, not live-service integration.
 
 ### Docs
 

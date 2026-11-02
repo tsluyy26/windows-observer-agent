@@ -35,7 +35,7 @@ The [disclaimer](DISCLAIMER.md) explains user-facing limitations; it does not re
 
 Do not put exploit details, credentials, real screenshots, or unpatched vulnerability specifics in a public Issue, PR, discussion, or chat transcript intended for publication. If you already have a verified private contact with the maintainer, ask whether it is suitable before sending a report; this document does not establish such a channel. Otherwise, wait until a private channel is published rather than disclosing sensitive details publicly.
 
-Before publicly launching the repository, the maintainer must configure and test a private reporting method and update this section. It may be GitHub private reporting or another appropriate mechanism, but neither is currently asserted to exist.
+The repository is now public, but a private reporting channel is still unverified and remains an outstanding maintainer task. Configure and test a private reporting method and update this section. It may be GitHub private reporting or another appropriate mechanism, but neither is currently asserted to exist.
 
 ## What to Include in a Report
 

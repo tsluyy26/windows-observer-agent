@@ -4,7 +4,7 @@ Windows Observer Agent 是一个独立 Python 程序：把桌面观察资料整�
 
 你可以先用内置 Mock 数据离线体验，无需 Windows-MCP、模型账户或 API Key。需要真实桌面观察时，程序可显式连接已经准备好的本地 Windows-MCP HTTP 服务；需要模型规划时，可明确选择 Responses API、兼容 Chat Completions 的服务，或在受信 Python 代码中注册自己的 Adapter。
 
-从零开始请读 **[Windows 安装与使用指南](docs/installation-windows.md)**。GitHub 仓库尚未创建，目前没有公开下载地址；不要把示例地址当作项目仓库。
+从零开始请读 **[Windows 安装与使用指南](docs/installation-windows.md)**。公开仓库：[tsluyy26/windows-observer-agent](https://github.com/tsluyy26/windows-observer-agent)，默认分支 main。
 
 ## 项目特点
 
@@ -21,7 +21,7 @@ Windows Observer Agent 是一个独立 Python 程序：把桌面观察资料整�
 
 | 项目 | 已确认范围 |
 | --- | --- |
-| 发布副本最近全量测试 | 151 项通过，0 失败、0 错误、0 跳过；2026-11-02 上一轮实际验收结果，本轮文档整理未重跑全套 |
+| 发布副本最近全量测试 | 151 项通过，0 失败、0 错误、0 跳过；维护者确认 2026-11-02 首次 Push 触发的 Windows CI 已通过同样的 151 项完整离线测试；本轮文档整理未重跑 |
 | 真实桌面联调 | 已完成一次 Windows 11 / Windows-MCP 0.8.8 的只读观察，顺序为 ControlStatus → Screenshot → Snapshot |
 | 多模型接口 | 已有 Responses / Chat / Custom 架构和 SDK 内存 HTTP 测试；尚未完成真实第三方模型 API 的完整兼容性验证 |
 | 图片能力 | 可以接收截图块并在内存处理；没有视觉理解，默认不保存或上传原图 |
@@ -41,7 +41,7 @@ Windows Observer Agent 是一个独立 Python 程序：把桌面观察资料整�
 
 以下是根据当前配置和 UV 官方文档整理的候选步骤，**尚未在干净 Windows 环境完整执行**。安装命令会创建环境或下载文件，本次文档任务没有执行它们。
 
-1. 从维护者获取完整源码文件夹并解压。未来公开仓库创建后，再由用户自行下载 ZIP 或使用 Git；当前不提供虚构仓库 URL。
+1. 从公开仓库的 Code → Download ZIP 获取源码，或由用户自行使用 Git 克隆；具体命令见安装指南。
 2. 安装 UV（需要网络；已安装则跳过），重开 PowerShell 后确认可用：
 
 ~~~powershell
@@ -200,9 +200,9 @@ Scene 保留时间、来源、未知项和截断证据。未观察到窗口不�
 - v0.4.2：在明确服务、费用与数据共享授权后，开展真实模型联调。
 - v0.5：视觉理解及单独的图像隐私设计。
 - v0.6：受控执行器、逐步授权、重新观察和结果验证。
-- 后续：GUI、错误恢复、离线 CI、干净 Windows 安装与发行包验证。
+- 后续：GUI、错误恢复、干净 Windows 安装与发行包验证。离线 Windows CI 已完成首次远程验收。
 
-许可证文件已采用 MIT；文件创建不代表项目已经公开发布。Git/GitHub 操作由用户本人执行。
+许可证文件采用 MIT。项目源码仓库现已公开，但尚未创建正式 GitHub Release，也未发布 wheel、exe 等发行包。
 
 ## Documentation / Project Policies
 
