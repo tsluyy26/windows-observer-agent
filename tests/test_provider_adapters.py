@@ -195,6 +195,58 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             await self.adapter(self.config()).complete_async(self.request)
         self.assertNotIn('synthetic-only-key', str(raised.exception))
 
+    async def test_mcp_token_variable_is_rejected_before_sdk_and_http(self):
+        from windows_observer_agent.providers import ModelPolicyError
+        fake_token = 'fake_mcp_token_for_test_only'
+        for env_name in ('WOA_MCP_TOKEN', 'woa_mcp_token'):
+            with self.subTest(env_name=env_name), self.memory(), patch.dict(os.environ, {env_name: fake_token}):
+                with self.assertRaises(ModelPolicyError) as raised:
+                    await self.adapter(self.config(api_key_env=env_name)).complete_async(self.request)
+                self.assertTrue(fake_token not in str(raised.exception), 'Rejection exposed the token')
+        self.assertEqual(len(self.requests), 0)
+        self.assertEqual(len(self.clients), 0)
+
+    async def test_adapter_rejects_escaped_credentials_in_nested_json(self):
+        secret = 'synthetic-only-key'
+        escaped = r'\u0073' + secret[1:]
+        for payload in ({'object': {'field': secret}}, {'array': [secret]}):
+            self.reply = json.dumps(payload).replace(secret, escaped)
+            self.assertTrue(secret not in self.reply, 'Test setup contains the literal key')
+            self.assertTrue(json.loads(self.reply) == payload, 'Test setup does not decode to the expected payload')
+            for kind in ('openai_responses', 'openai_chat_completions'):
+                with self.subTest(kind=kind), self.memory():
+                    with self.assertRaises(ModelFailure) as raised:
+                        await self.adapter(self.config(kind)).complete_async(self.request)
+                    self.assertEqual(raised.exception.code, 'model_secret_rejected')
+                    self.assertTrue(secret not in str(raised.exception), 'Rejection exposed the key')
+
+    async def test_request_rejects_credentials_with_json_escape_characters(self):
+        from windows_observer_agent.providers import ModelPolicyError
+        secret = 'synthetic"\\credential'
+        for where in ('extra', 'input', 'schema'):
+            config = self.config(extra_params={'extension': [secret]}) if where == 'extra' else self.config()
+            request = {
+                'extra': self.request,
+                'input': replace(self.request, data={'nested': [{'field': secret}]}),
+                'schema': replace(self.request, schema={'field': [secret]}),
+            }[where]
+            with self.subTest(where=where), self.memory(), patch.dict(os.environ, {'EXAMPLE_MODEL_KEY': secret}):
+                with self.assertRaises(ModelPolicyError) as raised:
+                    await self.adapter(config).complete_async(request)
+                self.assertTrue(secret not in str(raised.exception), 'Rejection exposed the key')
+        self.assertEqual(len(self.requests), 0)
+
+    async def test_final_sdk_body_is_checked_before_transport(self):
+        secret = 'synthetic"\\credential'
+        for kind in ('openai_responses', 'openai_chat_completions'):
+            adapter = self.adapter(self.config(kind))
+            with self.subTest(kind=kind), self.memory(), patch.dict(os.environ, {'EXAMPLE_MODEL_KEY': secret}), \
+                 patch.object(adapter, '_instructions', return_value='generated field ' + secret):
+                with self.assertRaises(ModelFailure) as raised:
+                    await adapter.complete_async(self.request)
+                self.assertTrue(secret not in str(raised.exception), 'Rejection exposed the key')
+        self.assertEqual(len(self.requests), 0)
+
     async def test_overlapping_requests_keep_logs_suppressed_until_last_exit(self):
         first_ready, second_ready = asyncio.Event(), asyncio.Event()
         finish_first, finish_second = asyncio.Event(), asyncio.Event()

@@ -58,11 +58,11 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ~~~
 
-The latest recorded release-copy run passed 151 tests with no skips; that is a historical result, not a result from editing these documents. Missing SDKs or pwsh can cause skips. Report passed, failed, errored, and skipped counts separately.
+The final recorded local release-copy run passed 240/240 with zero failures, errors or skips. The earlier Windows CI count was 151/151. Missing SDKs or pwsh can cause skips. Report passed, failed, errored, and skipped counts separately.
 
 The suite uses Mock data, redacted Replay, fake sessions, and SDK in-memory HTTP transports. It needs no model key or live desktop service. Some tests launch controlled Python/PowerShell test hosts; this does not mean they launch Windows-MCP. Windows event loops may also create internal socketpairs.
 
-The full recorded environment is Windows 11. PowerShell-specific cases need pwsh and exercise script syntax, mocked preflight/cleanup, and synthetic output. They do not read a real desktop. Real Windows-MCP observation is a separate manual integration, never a prerequisite for ordinary test discovery.
+The full recorded environment is Windows 11. PowerShell-specific cases need pwsh and exercise script syntax, mocked preflight, listener identity, authentication sequencing, cleanup, and synthetic output. The authentication suite also exercises the pinned MCP SDK against in-memory HTTP, including endpoints that accept unauthenticated requests. Live server authentication has a separate manual `-AuthenticationOnly` procedure in the [Windows installation guide](docs/installation-windows.md#11-可选真实桌面观察的边界). They do not read a real desktop. Real Windows-MCP observation is a separate manual integration, never a prerequisite for ordinary test discovery.
 
 If a task permits only inspection, use an already prepared interpreter and check source imports; do not run UV setup or sync. Documentation-only changes can be checked with syntax, link, encoding, and consistency reviews without rerunning the whole functional suite. Real Live/model tests require separate explicit authorization. Do not execute scripts/Test-Live.ps1 as a test shortcut.
 

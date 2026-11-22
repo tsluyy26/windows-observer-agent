@@ -9,9 +9,33 @@ import re
 from .mcp_adapter import (CONTROL_ROW, DISPLAY_ROW, HEADINGS, TRUNCATION, WINDOW_NODE,
                           WINDOW_ROW, adapt_records, decode_text, normalize_result, parse_control)
 from .mcp_client import validate_tool
+from .planning_input import TYPES
+from .resource_limits import InputFileError, ResourceLimitError, read_json_file
+
+# Windows-MCP 0.8.8 emits UIA LocalizedControlType labels. Extend the existing
+# projection vocabulary for Live reports with verified en-US and zh-CN labels.
+_LIVE_CONTROL_TYPES = frozenset(TYPES | {
+    'check box', 'combo box', 'list item', 'menu item', 'tab item', 'scroll bar',
+    'custom', 'data item', 'group', 'header item', 'hyperlink', 'image', 'link',
+    'menu bar', 'radio button', 'slider', 'spinner', 'split button', 'status bar',
+    'tab', 'tool bar', 'tree item',
+    '编辑', '复选框', '组合框', '列表项目', '拆分按钮', '单选按钮', '链接', '滑块',
+    '树项目', '项', '标头项目', '沙网', '文档', '窗口', '窗格', '文本', '工具栏',
+    '选项卡', '菜单栏', '自定义', '组', '图像', '状态栏',
+})
+# Recover rows with malformed or missing types for redaction. The raw MCP
+# parser and Replay retain their existing grammar.
+_LIVE_CONTROL_ROW = re.compile(
+    r'^[│\s├└─]*(\([-?\d,\s]+\)|\(\?\))\s++([^"]*\s)?"(.*?)"(?:\s+.*)?$'
+)
 
 
-def sanitize_record(record: dict) -> dict:
+def _normalize_live_control_type(value: str | None) -> str:
+    normalized = ' '.join(value.casefold().split()) if isinstance(value, str) else ''
+    return normalized if normalized in _LIVE_CONTROL_TYPES else 'unknown'
+
+
+def sanitize_record(record: dict, *, for_replay: bool = False) -> dict:
     """保守允许列表；无法识别的行/字段丢弃，而非试图枚举所有敏感词。"""
     tool = record['tool']
     arguments = deepcopy(record.get('arguments', {}))
@@ -26,11 +50,14 @@ def sanitize_record(record: dict) -> dict:
     safe = {'tool': tool, 'arguments': arguments, 'observed_at': timestamp, 'redacted': True}
     try:
         result = normalize_result(record['result'])
+    except ResourceLimitError:
+        raise
     except ValueError:
         safe['result'] = {'isError': True, 'content': []}
         return safe
     blocks = []
     structured = None
+    control_row = CONTROL_ROW if for_replay else _LIVE_CONTROL_ROW
     # 记录级映射：文本块可以分开承载 focused/opened/UI Tree，不能分别重置身份。
     section = None
     titles, handles = {}, {}
@@ -64,8 +91,13 @@ def sanitize_record(record: dict) -> dict:
                         sanitized.append(f'{title_alias(title)}  {depth}  {status}  {width}  {height}  {alias}')
                     elif section == 'UI Tree:' and (match := WINDOW_NODE.fullmatch(line)):
                         sanitized.append(line[:line.find('window')] + f'window "{title_alias(match[1])}"')
-                    elif section == 'UI Tree:' and (match := CONTROL_ROW.fullmatch(line)):
+                    elif section == 'UI Tree:' and (match := control_row.fullmatch(line)):
                         coords, control_type, _ = match.groups()
+                        if for_replay:
+                            if control_type.strip().casefold() not in TYPES:
+                                control_type = 'unknown'
+                        else:
+                            control_type = _normalize_live_control_type(control_type)
                         sanitized.append(f'{coords} {control_type} "redacted-control"')
                     elif match := TRUNCATION.search(line):
                         sanitized.append(f'... [truncated: reached the {match[1]}-element capture limit]')
@@ -96,7 +128,12 @@ class ReplayClient:
         self.path = path
 
     def collect(self):
-        data = json.loads(self.path.read_text(encoding='utf-8'))
+        try:
+            data = read_json_file(self.path)
+        except (InputFileError, ResourceLimitError):
+            raise
+        except (ValueError, RecursionError):
+            raise ValueError('无法读取有效的 UTF-8 Replay JSON') from None
         if not isinstance(data, dict) or data.get('schema') != 'woa.replay.v1' or data.get('redacted') is not True:
             raise ValueError('要求明确标注 redacted:true 的 woa.replay.v1 回放')
         records = data.get('records')
@@ -106,9 +143,16 @@ class ReplayClient:
         if order not in (['ControlStatus', 'Snapshot'], ['ControlStatus', 'Snapshot', 'Screenshot']):
             raise ValueError('回放要求 ControlStatus → Snapshot → 可选 Screenshot')
 
-        # Windows asyncio 事件循环自身会创建 socketpair；纯本地 CLI 无需事件循环。
-        for record in records:
-            validate_tool(record['tool'], record.get('arguments', {}))
-        # 错误记录也交给适配器转为失败场景，避免重复解析以及 CLI 无法回放失败。
-        observation = adapt_records(records, source='Replay:' + str(self.path.resolve()), kind='replay')
-        return replace(observation, metadata={key: deepcopy(value) for key, value in data.items() if key != 'records'})
+        if any(not isinstance(record.get('result'), dict) for record in records):
+            raise ValueError('回放工具记录缺少结果对象')
+
+        # 只有投影后的记录进入 Scene、规则规划和两种报告。
+        # 使用固定来源前缀，保留字段定位，避免将本机文件路径放入公开报告。
+        try:
+            safe_records = [sanitize_record(record, for_replay=True) for record in records]
+            observation = adapt_records(safe_records, source='Replay:local', kind='replay')
+        except ResourceLimitError:
+            raise
+        except (ValueError, OverflowError, RecursionError):
+            raise ValueError('回放工具记录的参数或格式无效') from None
+        return replace(observation, metadata={'schema': 'woa.replay.v1', 'redacted': True})

@@ -12,6 +12,8 @@ from threading import Lock
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
+from .resource_limits import MODEL_TEXT_BYTES, ResourceLimitError, load_bounded_json
+
 _log_lock = Lock()
 _log_users = 0
 _log_previous = 0
@@ -39,11 +41,16 @@ class ModelPolicyError(ValueError):
     pass
 
 
+class ModelCredentialError(ModelPolicyError):
+    """Missing or unusable Provider credential configuration."""
+
+
 class ModelFailure(ValueError):
     def __init__(self, code='model_failure'):
         allowed = ('model_failure', 'model_timeout', 'model_authentication', 'model_redirect_rejected',
                    'model_sdk_version', 'model_sdk_missing', 'model_incomplete', 'model_nontext_output',
-                   'model_invalid_response', 'model_capability', 'model_endpoint_rejected', 'model_secret_rejected')
+                   'model_invalid_response', 'model_capability', 'model_endpoint_rejected', 'model_secret_rejected',
+                   'model_resource_limit')
         self.code = code if code in allowed else 'model_failure'
         super().__init__(self.code)
 
@@ -161,6 +168,9 @@ class ProviderConfig:
             raise ModelPolicyError('SDK Adapter 必须明确配置 base_url')
         if not isinstance(self.api_key_env, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', self.api_key_env):
             raise ModelPolicyError('密钥配置只能是环境变量名称')
+        # Windows 环境变量名不区分大小写。
+        if self.api_key_env.casefold() == 'woa_mcp_token':
+            raise ModelPolicyError('MCP 专用环境变量不能用于模型认证')
         if type(self.extra_params) is not dict:
             raise ModelPolicyError('extra_params 必须是对象')
         _validate_extra(self.extra_params)
@@ -176,6 +186,35 @@ class ProviderAccess:
     allow_local_http: bool = False
 
 
+def contains_credential(value, credential):
+    """检查 JSON 容器的字符串值和键，避免序列化转义隐藏凭据。"""
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str) and credential in item:
+            return True
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return False
+
+
+def reject_response_credential(text, credential):
+    if credential in text:
+        raise ModelFailure('model_secret_rejected')
+    try:
+        # 保留重复键的所有值，防止解码时前一个值消失。计划解析器负责严格结构校验。
+        decoded = load_bounded_json(text, object_pairs_hook=tuple)
+    except ResourceLimitError:
+        raise ModelFailure('model_resource_limit') from None
+    except (ValueError, RecursionError):
+        return
+    if contains_credential(decoded, credential):
+        raise ModelFailure('model_secret_rejected')
+
+
 def validate_access(config, access):
     config.validate()
     if access.enabled is not True or access.share_confirmed is not True:
@@ -188,9 +227,10 @@ def validate_access(config, access):
         raise ModelPolicyError('本地 HTTP 须显式 --allow-local-http 授权')
     key = os.environ.get(config.api_key_env, '')
     if not key or not key.isascii() or not key.isprintable() or any(c.isspace() for c in key):
-        raise ModelPolicyError('缺少有效模型密钥环境变量')
-    if key in json.dumps([config.name, config.model, config.base_url, config.extra_params], ensure_ascii=False):
-        raise ModelPolicyError('密钥不得出现在额外请求参数中')
+        raise ModelCredentialError('缺少有效模型密钥环境变量')
+    if contains_credential([config.name, config.model, config.base_url, config.extra_params], key):
+        raise ModelPolicyError('密钥不得出现在模型配置或额外请求参数中')
+    return key
 
 
 @dataclass(frozen=True)
@@ -227,14 +267,16 @@ class LLMResponse:
 
 
 def validate_external_request(config, access, request):
-    validate_access(config, access)
+    key = validate_access(config, access)
     request.validate()
     try:
         content = json.dumps([request.as_prompt(), request.schema], ensure_ascii=False, allow_nan=False)
+        decoded = json.loads(content)
     except (ValueError, TypeError, RecursionError):
         raise ModelPolicyError('模型请求必须是有效 JSON 数据') from None
-    if os.environ[config.api_key_env] in content:
+    if key in content or contains_credential(decoded, key):
         raise ModelPolicyError('密钥不得进入模型输入')
+    return key
 
 
 class LLMProvider(Protocol):
@@ -301,8 +343,7 @@ class ProviderManager:
         self.validate()  # factory 调用前先验证授权与密钥。
         request.validate()
         factory, external = self.registry.entry(self.config.adapter)
-        if external:
-            validate_external_request(self.config, self.access, request)
+        key = validate_external_request(self.config, self.access, request) if external else None
         try:
             with suppress_model_logs():
                 result = factory(deepcopy(self.config), self.access).complete(deepcopy(request))
@@ -316,10 +357,10 @@ class ProviderManager:
             raise ModelFailure('model_failure') from None
         if (not isinstance(result, LLMResponse) or result.provider != self.config.name
             or result.model != self.config.model or result.finish_reason != 'completed'
-            or not isinstance(result.text, str) or len(result.text.encode('utf-8')) > 65536):
+            or not isinstance(result.text, str) or len(result.text.encode('utf-8')) > MODEL_TEXT_BYTES):
             raise ModelFailure('model_invalid_response')
-        if external and os.environ[self.config.api_key_env] in result.text:
-            raise ModelFailure('model_secret_rejected')
+        if key is not None:
+            reject_response_credential(result.text, key)
         return result
 
 

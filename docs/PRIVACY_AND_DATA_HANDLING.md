@@ -38,7 +38,9 @@ The mock-llm planner uses MockLLMProvider, a deterministic local response genera
 
 ### C. Replay Mode
 
-ReplayClient reads a local woa.replay.v1 JSON file, requires redacted flags, sanitizes records and builds a historical observation. Flags and filenames are not proof that the original file is safe: the whole file is read before sanitization, and it is not rewritten or erased.
+ReplayClient reads a local `woa.replay.v1` JSON file and requires `redacted: true` on the file and each record. It checks tool sequence, arguments and result objects, then builds the historical observation from an allowlisted projection. Text and JSON reports use that projection, including any records in the raw observation section. The projection replaces titles, handles and control names with aliases or placeholders, normalizes unknown control types, omits image bytes and extra fields, and uses a fixed source label in place of the local path. Timestamps, display geometry, recognized control types and historical status can remain. Invalid files are rejected with a generic Replay error.
+
+The original file is read into memory. The redaction flags are input markers and the file is left on disk as supplied.
 
 Replay does not observe today's desktop or grant current control. With rule or Mock LLM it is offline. Selecting an authorized external provider sends the reduced historical goal/Scene projection to that provider.
 
@@ -46,7 +48,7 @@ Replay does not observe today's desktop or grant current control. With rule or M
 
 Live requires --live and an explicit --endpoint. StreamableHTTPTransport accepts a literal 127.0.0.1 host, validates its URL, and reads WOA_MCP_TOKEN (at least 32 ASCII characters without whitespace). It does not scan for a server, start one, or fall back to stdio.
 
-After initialize and tool discovery, collection is sequential: ControlStatus, Screenshot with use_annotation=false, then Snapshot with use_vision=false, use_dom=false and use_ui_tree=true. Only these three tools are allowed. Control must parse successfully as ready or agent (the internal mapping of ai); user takeover, unavailable/unknown state, refusal or failure stops collection.
+After discovery the client calls `ControlStatus → Screenshot → ControlStatus → Snapshot → ControlStatus`. A detected takeover, unexpected generation change or failed check discards the observation and stops further collection. Checks sample ownership at specific instants. A timeout or cancellation can end the wait while work already running on the server may still finish. Screenshot uses `use_annotation=false`. Snapshot uses `use_vision=false`, `use_dom=false` and `use_ui_tree=true`. Only `ready` and `ai` with a valid generation and zero wait may proceed. Across a capture, the client accepts an unchanged state and generation or the normal `ready` to `ai` lease with exactly one generation increment. Provisional tool data can enter client memory before the recheck. Discarding it prevents downstream use and does not erase server-side data or guarantee memory wiping. The timing checks have been exercised with synthetic data. Real takeover timing remains unverified.
 
 Screenshot obtains screen image content. normalize_result replaces image content blocks with MIME/omission metadata. This is not secure memory erasure, a general-purpose sanitizer for every unknown field, or visual understanding. Snapshot text may contain sensitive window/control data; raw tool text remains in internal Observation records.
 
@@ -83,11 +85,57 @@ Original window titles, arbitrary control text/values, local source paths, raw s
 
 Responses sends serialized data in input, instructions/schema, model, output format/budget, no tools, stream=false and store=false. Chat Completions sends system/user text messages, model, format/budget, stream=false and store=false; tool outputs are rejected. Both also send configured extra_params after validation. Those user-supplied values are not desktop redaction output: do not put personal information or credentials in them. Authentication headers and normal connection metadata reach the chosen service separately from the prompt.
 
+## Manual Live Child Environment
+
+The manual launcher supplies a fresh environment block to the Windows-MCP server and its version probe. Windows supplies the system directory, user profile, and local application-data paths. The launcher derives the Temp path under local application data. These paths can identify the local account and are not printed as an environment dump. The probe receives only the six Windows path variables. The server also receives fixed settings and the fresh, run-specific authentication token. The launcher supplies the token in the environment and keeps it out of command-line arguments.
+
+The manual server environment excludes the parent shell's Provider credentials, including custom names, along with proxy, Python, and debug overrides. The launcher sets FastMCP's dotenv path to the Windows null device. A missing required folder or a failed native launch stops the operation. See the [Windows installation guide](installation-windows.md#11-可选真实桌面观察的边界) for the exact environment and verification scope.
+
+This policy covers the server and its version probe started by this script. The Agent and custom Adapters retain control of their own environments and subprocesses. Windows-MCP and its descendants run under the user's account. Any process that deliberately reads other sources of configuration remains responsible for that access.
+
+## Windows-MCP Telemetry
+
+The Agent does not initialize its own telemetry. The manual launcher sets `ANONYMIZED_TELEMETRY=false` before starting Windows-MCP 0.8.8. The upstream lifecycle reads the string case-insensitively and expects no surrounding whitespace. An absent or invalid value takes the enabled branch. In the installed version's controlled lifecycle, the exact `false` setting prevented creation of the PostHog client, access to its identifier file, event creation, and submission to the HTTP adapter.
+
+When enabled and an analytics project key is available, upstream startup reads or creates `~/.windows-mcp/.windows-mcp-user-id`. The file contains a UUIDv7 rather than a username. Its reuse links activity from the same Windows profile, and disabling telemetry leaves an existing file in place. The SDK's uncaught-exception hooks can include exception messages and stack-frame paths. In a separate test of the explicit tool sender, the error message retained synthetic credentials and paths. Captured tool metadata also included the tool name, duration, client and runtime versions, and event timing.
+
+Under the tested fresh startup order, the three allowed tool handlers did not create PostHog events. Screenshot bytes, Observation data, UI text, window titles, and tool arguments did not enter the controlled successful tool sender. Exception messages or client-supplied metadata can still contain sensitive information when telemetry is enabled.
+
+An independently launched service controls its own settings. FastMCP 4.1.4 also has separate OpenTelemetry instrumentation. The tested installation had no configured exporter, and a controlled span was non-recording. The audit intercepted prepared HTTP requests in memory and did not run a real service or establish external traffic or retention behavior. See the [manual Live procedure](installation-windows.md#11-可选真实桌面观察的边界).
+
+## Public Errors and Diagnostics
+
+The project CLI maps handled failures to a stage and a fixed category. File failures report what to check without returning a local path. Configuration, credentials, authentication, connection, tool, timeout, resource, and unexpected failures use separate diagnostics. Provider request failures may produce a rule fallback with a fixed reason code. Live error fields retain approved categories, tool names and limited protocol metadata. Local Mock error fields use fixed labels. This boundary covers handled errors in both text and JSON reports.
+
+The manual Live launcher validates the child process summary and any error category before generating its own terminal text. Child output, exception chains, and native error records may contain private details and are not forwarded as diagnostic prose. The launcher still reports authentication stages and cleanup outcomes. The standard workflow creates no exception log.
+
+This boundary applies to project-controlled errors. User-authored goals and other ordinary report data have their own rules, and an in-process custom Adapter can emit directly to streams, configure its own logging, or create its own files. Host diagnostics emitted before the script starts are controlled by the host.
+
+## Input Resource Limits
+
+The Agent applies the following local limits. MiB and KiB use powers of 1024.
+
+| Input | Limit | Enforcement |
+| --- | --- | --- |
+| MCP ordinary HTTP response | 16 MiB per body | An HTTPX2 response hook checks a usable Content-Length and stops reading when actual bytes cross the limit. |
+| MCP SSE | 16 MiB per framed event, including line delimiters | The response stream checks each frame before the SDK consumes it. The SDK's existing 16 MiB event limit also stays enabled. |
+| MCP session | 64 MiB of response body bytes, 1,024 nonempty SSE frames and 128 HTTP requests | One budget covers the entire session, including SSE reconnects. Frames containing only comments also count. |
+| Tool discovery | 128 tools per page, 512 tools total and 20 pages | Each SDK-decoded page is checked before tools are copied to the combined list. Duplicate names and invalid or repeated cursors are rejected. |
+| Local Mock and Replay files | 16 MiB per file | The Agent checks the opened file handle and reads at most the limit plus one byte. |
+| Built-in model response | 1 MiB per HTTP body and 64 KiB of UTF-8 model text | The HTTP limit applies during reading. The text limit applies after extracting the model text from the bounded response. |
+| JSON shape | Depth 64, 1,024 fields per object, 16,384 elements per array, 16 MiB per encoded string and 100,000 nodes including keys | A lexical check runs on bounded raw bytes before object creation in covered JSON paths. The JSON parser and SDK still validate syntax and structure. |
+
+The 16 MiB MCP limits retain room for base64 image events larger than the SDK's old 1 MiB default. The model body budget leaves room for the protocol envelope and JSON escaping around 64 KiB of UTF-8 plan text. The largest bundled Mock/Replay fixture is 2,158 bytes. The file budget allows larger history files. The tool limits allow substantially more discovery entries than the Agent's three callable tools.
+
+The built-in HTTP clients request identity encoding and reject compressed responses before reading the body to avoid decompression amplification. A missing, understated or invalid Content-Length cannot disable actual byte accounting. Ordinary JSON bodies and SSE frames may still be buffered up to their limits for shape checks. These limits do not control transport chunks already allocated below the HTTP hook, headers, SDK object copies or server-side work. Connection and call timeouts still apply. If an MCP budget is exhausted, further requests in that session are blocked, including session termination requests. Local resources close and the server may retain state until its own expiry.
+
+Resource violations use fixed categories and stop the affected read. Built-in model HTTP and shape violations flow to the local rule fallback. Local file errors omit the path and input content. Registered custom adapters manage their own network and resource usage.
+
 ## Data Redaction and Minimization
 
 Raw MCP normalization removes recognized image blocks, but preserves text and may preserve unknown fields. Scene construction is not global anonymization.
 
-Live CLI uses public_live_observation and sanitize_record: titles/handles become aliases, control names are replaced, unknown lines are discarded, while recognized types, coordinates, dimensions, status, timestamps and capture-limit information can remain.
+Live rule reports use the same redacted observation for text and JSON, including retained records in the JSON output. Titles and handles become aliases and control names are replaced. Control types use a fixed allowlist of recognized English and Simplified Chinese labels. Case and whitespace are normalized. Unsupported or missing types in recognizable control rows become `unknown`, and unrecognized rows are omitted. Coordinates, dimensions, status, timestamps and capture-limit information can remain.
 
 LLM planning uses the narrower build_prompt allowlist above. public_planning_scene supplies the corresponding reduced report Scene, including reduced raw metadata. It is a different projection from Live rule reporting.
 
@@ -111,7 +159,9 @@ The Agent cannot control their internal retention. store=false is a request opti
 
 ## API Keys and Authentication
 
-Model API keys authenticate the selected model service. WOA_MCP_TOKEN authenticates the local MCP session; these are different secrets and destinations. Named model keys are read from the configured environment variable; the legacy model key is WOA_LLM_API_KEY.
+Model API keys authenticate the selected model service. `WOA_MCP_TOKEN` authenticates the local MCP session and is rejected as a model credential variable, regardless of case. Named model keys are read from the configured environment variable. The legacy model key is `WOA_LLM_API_KEY`.
+
+Built-in SDK adapters check the serialized HTTP request body before sending it. The selected model key is expected only in the authentication header. The adapters and external Provider manager reject a response if that key appears in raw text or decoded JSON fields, including nested objects and arrays. The plan parser rejects terminal control characters in decoded plan text. These checks cover the configured model key and do not detect arbitrary secrets supplied by a user or a provider.
 
 Never put real credentials in source, public TOML, extra parameters, saved commands, logs or screenshots. Use a trusted interactive secret-input mechanism rather than typing a literal key into saved PowerShell history. Environment variables still expose secrets to the process and inherited environments; they are not an encrypted secret vault.
 

@@ -25,7 +25,7 @@ Windows Observer Agent 是一个独立 Python 程序：把桌面观察资料整�
 
 | 项目 | 已确认范围 |
 | --- | --- |
-| 发布副本最近全量测试 | 151 项通过，0 失败、0 错误、0 跳过；维护者确认 2026-11-02 首次 Push 触发的 Windows CI 已通过同样的 151 项完整离线测试；本轮文档整理未重跑 |
+| 离线测试历史 | 本地最终复测 240/240，0 失败、0 错误、0 跳过。早期 Windows CI 为 151/151。冻结时未重跑 |
 | 真实桌面联调 | 已完成一次 Windows 11 / Windows-MCP 0.8.8 的只读观察，顺序为 ControlStatus → Screenshot → Snapshot |
 | 多模型接口 | 已有 Responses / Chat / Custom 架构和 SDK 内存 HTTP 测试；尚未完成真实第三方模型 API 的完整兼容性验证 |
 | 图片能力 | 可以接收截图块并在内存处理；没有视觉理解，默认不保存或上传原图 |
@@ -167,7 +167,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ~~~
 
-当前套件含 151 项；依赖缺失或没有 pwsh 时部分测试会跳过，看到 OK 还必须检查跳过数量。SDK 使用内存 HTTP，PowerShell 测试只调用安全替身/合成输出程序；不会运行真实 Live 入口。没有新环境的只读验收应使用已存在的解释器，参见安装指南，避免 uv run 意外创建环境。
+冻结前最近一次全量发现 240 项；依赖缺失或没有 pwsh 时部分测试会跳过，看到 OK 还必须检查跳过数量。SDK 使用内存 HTTP，PowerShell 测试只调用安全替身/合成输出程序；不会运行真实 Live 入口。没有新环境的只读验收应使用已存在的解释器，参见安装指南，避免 uv run 意外创建环境。
 
 ## 项目结构
 
@@ -194,9 +194,14 @@ Scene 保留时间、来源、未知项和截断证据。未观察到窗口不�
 
 ## 安全说明
 
+- 读取限制覆盖 MCP HTTP 正文、SSE 单帧及会话累计量、本地 Mock/Replay 文件和内置模型 HTTP 正文。JSON 结构在构建对象前检查，工具数量按 SDK 解码后的每页校验。内置 HTTP 客户端要求 `Content-Encoding: identity`，并拒绝压缩响应。数值、失败处理和 SDK 缓冲边界见[资源上限说明](docs/PRIVACY_AND_DATA_HANDLING.md#input-resource-limits)。
+
 - Agent 的 Live 客户端只连接明确指定的 127.0.0.1 端点，使用环境变量 WOA_MCP_TOKEN；不自动启动服务、不扫描或回退到 stdio。
-- Windows-MCP 工具白名单仅为 ControlStatus、Screenshot、Snapshot。工具按 ControlStatus → Screenshot → Snapshot 的顺序调用；控制器拒绝、用户接管或发生错误时均停止观察，不申请或绕过控制保护。
-- scripts/Test-Live.ps1 是会启动并清理真实测试服务的**手动工具**，不是普通启动命令。需要退出现有 Codex 服务、检查旧实例后另行执行，见 [手动 Live 边界](docs/installation-windows.md#11-可选真实桌面观察的边界)。live-server.toml 不能脱离脚本认证与三工具参数单独照抄。
+- Windows-MCP 工具白名单仅为 ControlStatus、Screenshot、Snapshot。发现工具后依次调用 `ControlStatus → Screenshot → ControlStatus → Snapshot → ControlStatus`。检测到接管、控制代次异常或复核失败时，客户端丢弃本轮采集内容并停止。复核只反映采样时刻。超时或取消可以停止等待，已经开始的服务端采集仍可能完成。 客户端不申请或绕过控制保护。
+- `scripts/Test-Live.ps1` 是需单独授权的手动联调工具。先退出 Codex 并确认无旧实例。脚本把测试服务、认证探测和观察进程从创建时纳入本轮 Windows Job Object。以 `LIVE_CLEANUP_PASS` 确认 Job 已清空、根进程已退出且端口无监听。宿主被强制结束时由 Windows 回收 Job 内进程，脚本无法输出验收结果。真实 Windows-MCP 异常退出仍待联调。`live-server.toml` 须配合脚本的认证和三工具参数使用。见 [手动 Live 边界](docs/installation-windows.md#11-可选真实桌面观察的边界)。
+- 手动 Live 脚本为服务和它的版本探测建立独立环境。服务只接收必要的 Windows 路径、固定配置与本轮生成的认证 Token。父终端的模型密钥、代理和调试变量不会传入该服务。见 [手动 Live 子进程环境](docs/PRIVACY_AND_DATA_HANDLING.md#manual-live-child-environment)。
+- Agent 本身不主动初始化遥测。手动 Live 启动器在导入 Windows-MCP 0.8.8 前设置 `ANONYMIZED_TELEMETRY=false`，关闭其 PostHog 初始化。独立启动的服务有自己的配置，启用时可能保留本地标识并发送错误诊断。见 [Windows-MCP 遥测](docs/PRIVACY_AND_DATA_HANDLING.md#windows-mcp-telemetry)。
+- CLI 按阶段和固定类别显示失败。程序处理的失败只输出安全提示，Provider 回退和 Live 报告只保留受限的诊断字段。手动 Live 脚本显示经过校验的摘要和清理状态，完整文本或 JSON 由 Python CLI 提供。见 [错误与诊断边界](docs/PRIVACY_AND_DATA_HANDLING.md#public-errors-and-diagnostics)。
 - 默认不上传截图。外部模型仅在明确配置和共享确认后接收允许列表脱敏结构；自由窗口标题、路径、正文和原始图像不进入模型输入。目标缩减可能丢失语义，必须保留不确定性。
 - 原始工具文本仍可能存在程序内存中；Live 报告脱敏与模型输入投影不是同一处理层。时间、应用类别、坐标、尺寸及关系等结构性元数据仍可能识别用户活动。终端捕获、自定义输入及第三方留存需要另行审查，不能宣称所有原始文本都已删除或所有数据都不会落盘。
 - 第三方模型服务可能按自己的政策记录、保留或处理请求。项目无法控制其内部留存；store=false 只是请求选项，不保证零留存或不用于训练。启用外部 Provider 后，获准发送的数据会离开本机。
@@ -212,13 +217,13 @@ Scene 保留时间、来源、未知项和截断证据。未观察到窗口不�
 - v0.6：受控执行器、逐步授权、重新观察和结果验证。
 - 后续：GUI、错误恢复、干净 Windows 安装与发行包验证。离线 Windows CI 已完成首次远程验收。
 
-许可证文件采用 MIT。项目源码仓库现已公开，但尚未创建正式 GitHub Release，也未发布 wheel、exe 等发行包。
+许可证文件采用 MIT。v0.4.1 以源码归档分发，详见[中文发布说明](docs/release-notes-v0.4.1.zh-CN.md)。
 
 ## 文档与项目规范
 
 - [贡献指南](CONTRIBUTING.md)
 - [更新记录](CHANGELOG.md)
-- [安全政策](SECURITY.md)
+- [安全政策](SECURITY.md)。报告尚未修复的漏洞时，请登录 GitHub，在[仓库 Security → Advisories](https://github.com/tsluyy26/windows-observer-agent/security/advisories) 选择 **Report a vulnerability**，避免在公开 Issue 或 Discussions 中披露细节。
 - [行为准则](CODE_OF_CONDUCT.md)
 - [免责声明](DISCLAIMER.md)
 - [AI 编程助手规则](AGENTS.md)

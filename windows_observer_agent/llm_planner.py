@@ -2,12 +2,14 @@
 from dataclasses import replace
 import json
 import re
+import unicodedata
 
 from .models import Plan, PlanStep
 from .planner import make_plan
 from .planning_input import build_prompt, public_planning_scene
 from .providers import (LLMRequest, LLMResponse, LegacyProviderAdapter, ModelFailure,
                         ModelPolicyError)
+from .resource_limits import MODEL_TEXT_BYTES, load_bounded_json
 
 OPERATIONS = ['review_window', 'review_control', 'propose_activation', 'propose_ui_action', 'verify', 'ask_user']
 TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 800}
@@ -45,6 +47,8 @@ def _validate(value, schema):
     elif kind == 'string':
         if type(value) is not str or not value.strip() or not schema.get('minLength', 1) <= len(value) <= schema.get('maxLength', 800):
             raise ValueError('文本字段无效')
+        if any(unicodedata.category(char) in ('Cc', 'Cs') for char in value):
+            raise ValueError('计划文本含不允许的控制字符')
     elif kind == 'boolean' and type(value) is not bool:
         raise ValueError('布尔字段无效')
     if 'enum' in schema and value not in schema['enum']:
@@ -52,7 +56,7 @@ def _validate(value, schema):
 
 
 def parse_plan(text, prompt, *, planner):
-    if not isinstance(text, str) or len(text.encode('utf-8')) > 65536:
+    if not isinstance(text, str) or len(text.encode('utf-8')) > MODEL_TEXT_BYTES:
         raise ValueError('输出类型或大小无效')
     def unique(pairs):
         result = {}
@@ -61,7 +65,7 @@ def parse_plan(text, prompt, *, planner):
                 raise ValueError('重复 JSON 字段')
             result[key] = value
         return result
-    payload = json.loads(text, object_pairs_hook=unique,
+    payload = load_bounded_json(text, object_pairs_hook=unique,
                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError('非法 JSON 数字')))
     _validate(payload, PLAN_SCHEMA)
     validate_plan(payload, prompt)
@@ -135,7 +139,8 @@ def plan_with_provider(goal, scene, provider):
     except ModelFailure as exc:
         reason = exc.code if exc.code in {'model_timeout', 'model_authentication', 'model_redirect_rejected',
             'model_sdk_version', 'model_sdk_missing', 'model_incomplete', 'model_nontext_output', 'model_failure',
-            'model_invalid_response', 'model_capability', 'model_endpoint_rejected', 'model_secret_rejected'} else 'model_failure'
+            'model_invalid_response', 'model_capability', 'model_endpoint_rejected', 'model_secret_rejected',
+            'model_resource_limit'} else 'model_failure'
     except TimeoutError:
         reason = 'model_timeout'
     except Exception:

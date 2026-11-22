@@ -2,11 +2,11 @@
 from copy import deepcopy
 import asyncio
 import math
-import json
 from pathlib import Path
 from typing import Any, Protocol
 
 from .models import Observation
+from .resource_limits import ResourceLimitError, load_bounded_json, read_json_file
 
 
 class ObservationClient(Protocol):
@@ -25,8 +25,7 @@ class MockClient:
         self.data = data
 
     def read_mock(self) -> dict[str, Any]:
-        payload = deepcopy(self.data) if self.data is not None else json.loads(
-            self.path.read_text(encoding='utf-8'))
+        payload = deepcopy(self.data) if self.data is not None else read_json_file(self.path)
         if not isinstance(payload, dict) or payload.get('mock') is not True:
             raise ValueError('仅接受带有 mock: true 的 Mock 数据')
         if payload.get('schema') != 'woa.mock.v1':
@@ -59,6 +58,14 @@ class MCPError(ValueError):
 
 
 class MCPPolicyError(MCPError):
+    pass
+
+
+class MCPCredentialError(MCPPolicyError):
+    pass
+
+
+class MCPResourceError(MCPPolicyError):
     pass
 
 
@@ -117,7 +124,9 @@ def validate_tool(name: str, arguments: dict) -> None:
         else:  # region 的字符串形式只接受 JSON 数字坐标，不接受任意文本。
             if isinstance(value, str):
                 try:
-                    value = json.loads(value)
+                    value = load_bounded_json(value)
+                except ResourceLimitError:
+                    raise
                 except ValueError:
                     raise MCPPolicyError('region 必须为 JSON 坐标') from None
             valid = value is None or (isinstance(value, list) and len(value) == 4
@@ -177,10 +186,16 @@ class MCPClient:
         payload = None
         phase = 'call'
         try:
-            async with asyncio.timeout(self.call_timeout):
+            async with asyncio.timeout(self.call_timeout) as deadline:
                 payload = await self.transport.call_tool(name, deepcopy(arguments))
                 phase = 'parse'
-                return normalize_result(payload)
+                result = normalize_result(payload)
+            # Cooperative cancellation or synchronous parsing can deliver a late result.
+            if asyncio.current_task().cancelling():
+                raise asyncio.CancelledError
+            if deadline.expired() or asyncio.get_running_loop().time() >= deadline.when():
+                raise MCPTimeoutError('MCP 工具调用超时：' + name)
+            return result
         except BaseException as exc:
             cleanup_error = None
             try:
@@ -195,6 +210,8 @@ class MCPClient:
                 raise MCPTimeoutError('MCP 工具调用超时：' + name) from None
             if isinstance(exc, MCPError):
                 raise
+            if isinstance(exc, ResourceLimitError):
+                raise MCPResourceError(str(exc)) from None
             if not isinstance(exc, Exception):
                 raise
             details = diagnose_tool_failure(payload, exc, phase)

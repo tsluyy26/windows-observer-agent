@@ -268,6 +268,50 @@ json_mode = true
         self.assertEqual(manager.name, 'first')
         self.assertNotIn('SECRET', repr(plan))
 
+    def test_provider_cli_falls_back_without_reporting_escaped_key(self):
+        from windows_observer_agent.__main__ import main
+        from windows_observer_agent.llm_provider import MockLLMProvider
+        secret = 'synthetic-only-key'
+        escaped = r'\u0073' + secret[1:]
+        owner = self
+
+        class EchoAdapter:
+            def complete(self, request):
+                payload = json.loads(MockLLMProvider().generate(request.as_prompt()))
+                payload['steps'][0]['preconditions'].append(secret)
+                reply = json.dumps(payload).replace(secret, escaped)
+                owner.assertTrue(secret not in reply, 'Test setup contains the literal key')
+                owner.assertTrue(secret in json.loads(reply)['steps'][0]['preconditions'])
+                return owner.Response(reply, 'example', 'example-model')
+
+        registry = self.Registry()
+        registry.register('echo', lambda c, a: EchoAdapter())
+        config = '''
+[llm]
+provider = "example"
+[llm.providers.example]
+adapter = "echo"
+model = "example-model"
+base_url = "https://api.example.com/v1"
+api_key_env = "EXAMPLE_MODEL_KEY"
+'''
+        args = ['--planner', 'provider', '--provider-config', 'synthetic.toml',
+                '--enable-external-model', '--confirm-data-sharing',
+                '--confirm-provider-endpoint', 'https://api.example.com/v1']
+        original_read = Path.read_text
+        for options in ([], ['--json']):
+            with patch('windows_observer_agent.providers.default_registry', return_value=registry), \
+                 patch.object(Path, 'read_text', side_effect=lambda *a, **k: config if a[0].suffix == '.toml' else original_read(*a, **k), autospec=True), \
+                 patch.dict(os.environ, {'EXAMPLE_MODEL_KEY': secret}, clear=True), \
+                 patch('socket.socket.connect', side_effect=AssertionError('network')), \
+                 contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                status = main([*args, *options])
+            self.assertIn(status, (0, 1))
+            self.assertTrue(secret not in out.getvalue() + err.getvalue(), 'CLI exposed the key')
+            self.assertIn('model_secret_rejected', out.getvalue())
+            if options:
+                self.assertFalse(json.loads(out.getvalue())['plan']['executable'])
+
     def test_custom_adapter_cannot_mutate_parser_observation_evidence(self):
         from windows_observer_agent.llm_planner import plan_with_provider
         from windows_observer_agent.llm_provider import MockLLMProvider

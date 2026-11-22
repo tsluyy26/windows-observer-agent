@@ -23,14 +23,14 @@ The rule planner handles a limited family of requests such as creating a blank N
 
 | Area | Evidence and limits |
 | --- | --- |
-| Offline tests | The maintainer confirmed the first push-triggered GitHub Windows CI run on 2026-11-02 passed 151 tests, with 0 failures, errors or skips. This documentation task did not rerun tests or CI. |
+| Offline tests | Final recorded local run: 240/240 with zero failures, errors or skips. The first Windows CI run passed 151/151. No tests were rerun for the freeze. |
 | Real desktop observation | One Windows 11 / Windows-MCP 0.8.8 read-only integration succeeded, calling ControlStatus → Screenshot → Snapshot. |
 | Model adapters | Responses / Chat / Custom architecture and in-memory SDK tests exist; full compatibility with real third-party model APIs has not been verified. |
 | Images | Image blocks can be received and processed in memory. No visual understanding or default raw-image saving/upload is implemented. |
 | Installation and distribution | Run from the source root. Clean-Windows user installation, wheel, pip installation and exe distribution have not completed acceptance. |
 | Desktop execution | No action executor; plans cannot click, type or execute suggested commands. |
 
-Public source availability does not imply a formal GitHub Release or a published wheel/exe.
+See the [v0.4.1 release notes](docs/release-notes-v0.4.1.md) for the frozen source scope and known limitations.
 
 ## Requirements
 
@@ -209,15 +209,20 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ~~~
 
-The recorded suite has 151 tests. Missing SDKs or pwsh can cause skips; inspect the counts rather than accepting any OK result as full acceptance. SDK tests use in-memory HTTP; PowerShell tests use mocks and synthetic output. They do not invoke the real Live launcher entrypoint.
+The final recorded local suite discovered 240 tests. Missing SDKs or pwsh can cause skips; inspect the counts rather than accepting any OK result as full acceptance. SDK tests use in-memory HTTP; PowerShell tests use mocks and synthetic output. They do not invoke the real Live launcher entrypoint.
 
 [Windows CI](.github/workflows/ci.yml) runs the same discovery on a GitHub-hosted Windows runner and rejects failures, errors, empty discovery and skips. Its first push-triggered 151/151 success is a historical result confirmed by the maintainer, not a new run for these READMEs. No claim is made here about branch protection or verified PR-trigger behavior.
 
 ## Safety and privacy
 
+- Read limits cover MCP HTTP bodies, individual SSE frames and cumulative session traffic, local Mock/Replay files, and built-in model HTTP bodies. JSON shape is checked before object construction, and tool counts are checked on each SDK-decoded page. Built-in HTTP clients request identity content encoding. See [Input Resource Limits](docs/PRIVACY_AND_DATA_HANDLING.md#input-resource-limits) for budgets, failure behavior and SDK buffering boundaries.
+
 - Live connects only to an explicit 127.0.0.1 endpoint using WOA_MCP_TOKEN. The Agent does not start a server, scan alternatives or fall back to stdio.
-- Only ControlStatus, Screenshot and Snapshot are allowed, in sequence. Controller refusal, user takeover or errors stop observation; protection is not bypassed.
-- The manual scripts/Test-Live.ps1 can start and clean up a real test server. It requires a separate controlled session, checks existing instances, and must not be confused with ordinary startup or offline tests. See the [Live boundary](docs/installation-windows.md#11-可选真实桌面观察的边界).
+- Only ControlStatus, Screenshot and Snapshot are allowed. After discovery the client calls `ControlStatus → Screenshot → ControlStatus → Snapshot → ControlStatus`. A detected takeover, unexpected generation change or failed check discards the observation and stops further collection. Checks sample ownership at specific instants. A timeout or cancellation can end the wait while work already running on the server may still finish. The client does not bypass controller protection.
+- The manual `scripts/Test-Live.ps1` launcher requires separate authorization. Exit Codex and verify that no prior service is running. The launcher places the test server, authentication probes, and observer in a run-specific Windows Job Object at creation. `LIVE_CLEANUP_PASS` confirms an empty Job, root exit, and no remaining listener on the selected port. If the host is forcibly terminated, Windows terminates Job members and the script cannot report verification. Abrupt shutdown of a real Windows-MCP run remains unverified. Use `live-server.toml` with the launcher's authentication and three-tool arguments. See the [Live boundary](docs/installation-windows.md#11-可选真实桌面观察的边界).
+- The manual Live launcher builds a separate environment for the server and its version probe. The server receives required Windows paths, fixed settings, and a fresh authentication token for the run. The launcher excludes the parent shell's model credentials, proxies, and debug settings from the server environment. See [manual Live child environment](docs/PRIVACY_AND_DATA_HANDLING.md#manual-live-child-environment).
+- The Agent does not initialize its own telemetry. The manual Live launcher sets `ANONYMIZED_TELEMETRY=false` before importing Windows-MCP 0.8.8 to prevent its PostHog initialization. Independently launched servers use their own settings and may persist an identifier and send exception diagnostics when enabled. See [Windows-MCP telemetry](docs/PRIVACY_AND_DATA_HANDLING.md#windows-mcp-telemetry).
+- The CLI reports failures with a stage and a fixed error category. Handled failures use safe messages, and Provider fallbacks and Live reports retain only limited diagnostics. The manual Live script displays a validated summary and cleanup status. The Python CLI provides the full text or JSON report. See [public errors and diagnostics](docs/PRIVACY_AND_DATA_HANDLING.md#public-errors-and-diagnostics).
 - No raw screenshot upload is implemented by the built-in planner. Explicitly authorized external models receive a reduced goal and allowlisted structured data rather than original titles, paths, free UI text or images.
 - Raw tool text can still exist in memory. Live report redaction and model-input projection differ; structural metadata such as time, application categories, coordinates, dimensions and relationships can still identify activity. Terminal capture, custom inputs/adapters and third-party retention need separate care; do not assume all original text is erased or nothing is persisted.
 - External providers may log, retain or process requests under their own policies. The project cannot control internal provider retention; store=false is a request option, not a guarantee of zero retention or no training. Authorized external-provider requests send data off the machine.
@@ -234,14 +239,14 @@ Read [Privacy and Data Handling](docs/PRIVACY_AND_DATA_HANDLING.md), [Disclaimer
 - v0.6: controlled execution, step-by-step authority, refreshed observations and verification.
 - Later: GUI, recovery, clean-Windows user installation and distribution acceptance.
 
-Offline Windows CI has already completed its first remote acceptance; it is not a future feature. The source repository is public, but a formal GitHub Release and wheel/exe distribution are not established by source publication.
+The first Windows CI acceptance is recorded above. The v0.4.1 distribution target is a source archive.
 
 ## Documentation and project policies
 
 - [Windows installation guide — Chinese](docs/installation-windows.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
-- [Security policy](SECURITY.md)
+- [Security policy](SECURITY.md). To report an unpatched vulnerability, sign in and select **Report a vulnerability** under [Security → Advisories](https://github.com/tsluyy26/windows-observer-agent/security/advisories). Keep details out of public Issues and Discussions.
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Disclaimer](DISCLAIMER.md)
 - [AI assistant instructions](AGENTS.md)

@@ -1,10 +1,10 @@
 """本机 Windows-MCP 0.8.8 文本 renderer 的保守适配，不猜测 exe/控制权。"""
 from copy import deepcopy
-import json
 import math
 import re
 
 from .models import Observation
+from .resource_limits import ResourceLimitError, load_bounded_json
 
 WINDOW_ROW = re.compile(r'^\s*(.*?)\s+(-?\d+)\s+(Normal|Maximized|Minimized|Hidden)\s+(\d+)\s+(\d+)\s+(\d+)\s*$')
 CONTROL_ROW = re.compile(r'^[│\s├└─]*(\([-?\d,\s]+\)|\(\?\))\s+([\w ]+)\s+"(.*?)"(?:\s+.*)?$')
@@ -63,8 +63,12 @@ def diagnose_tool_failure(payload, exc: Exception, phase: str) -> dict:
 
 def decode_text(text: str) -> str:
     """FastMCP 可将 list[str] 序列化为一个文本块中的 JSON 数组。"""
+    if not text.lstrip().startswith('['):
+        return text
     try:
-        value = json.loads(text)
+        value = load_bounded_json(text)
+    except ResourceLimitError:
+        raise
     except ValueError:
         return text
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
@@ -116,7 +120,7 @@ def parse_control(payload: dict) -> dict:
         result = normalize_result(payload)
         structured = result.get('structuredContent')
         text = result_text(result)
-        from_text = json.loads(text) if text.strip() else None
+        from_text = load_bounded_json(text) if text.strip() else None
         if structured is not None and from_text is not None and structured != from_text:
             raise ValueError('ControlStatus 文本与结构化内容冲突')
         state = structured if structured is not None else from_text
@@ -133,6 +137,8 @@ def parse_control(payload: dict) -> dict:
         if owner == 'ai' and (type(state.get('generation')) is not int or state['generation'] < 0 or wait != 0):
             raise ValueError('AI 控制凭据缺失或矛盾')
         return {'success': True, 'owner': 'agent' if owner == 'ai' else owner, 'raw_state': state}
+    except ResourceLimitError:
+        raise
     except (ValueError, TypeError):
         return {'success': False, 'owner': 'unknown', 'error': 'ControlStatus 无效、失败或相互冲突'}
 
@@ -250,6 +256,8 @@ def adapt_records(records: list[dict], *, source: str, kind: str) -> Observation
                 observed_at = record.get('observed_at')
             elif tool == 'Screenshot':
                 warnings.append('Screenshot 图像数据已丢弃，仅保留 MIME 与省略标记；不与 Snapshot 强行合并')
+        except ResourceLimitError:
+            raise
         except ValueError:
             # 错误原文可能含路径/凭据，不保留到公开模型；正常未知字段仍保留。
             entry['result'] = {'isError': True, 'content': []}

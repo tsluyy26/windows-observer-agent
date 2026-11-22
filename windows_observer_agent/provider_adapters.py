@@ -6,7 +6,9 @@ import json
 import os
 
 from .providers import (LLMResponse, ModelFailure, ProviderAccess,
-                        validate_base_url, validate_external_request, suppress_model_logs)
+                        contains_credential, reject_response_credential, validate_base_url,
+                        validate_external_request, suppress_model_logs)
+from .resource_limits import MODEL_HTTP_BYTES, MODEL_TEXT_BYTES
 
 
 class MockAdapter:
@@ -34,6 +36,11 @@ class _SDKAdapter:
             return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80), parsed.path
         if identity(actual) != identity(expected) or request.method != 'POST':
             raise ModelFailure('model_endpoint_rejected')
+        # 使用本次请求实际携带的密钥，且只检查请求体，认证头按预期发送。
+        key = request.headers['Authorization'].removeprefix('Bearer ')
+        body = request.content
+        if key.encode('ascii') in body or contains_credential(json.loads(body), key):
+            raise ModelFailure('model_secret_rejected')
 
     async def _guard_response(self, response):
         if response.status_code in (401, 403):
@@ -51,15 +58,20 @@ class _SDKAdapter:
             return await self._request(request)
 
     async def _request(self, request):
+        budget = None
         try:
             import openai
             import httpx2
+            from .http_limits import HttpResponseBudget
             if version('openai') != '3.42.0' or version('httpx2') != '2.16.0':
                 raise ModelFailure('model_sdk_version')
+            budget = HttpResponseBudget(MODEL_HTTP_BYTES)
             async with asyncio.timeout(self.config.timeout):
                 async with httpx2.AsyncClient(trust_env=False, follow_redirects=False, verify=True,
+                    headers={'Accept-Encoding': 'identity'},
                     timeout=httpx2.Timeout(self.config.timeout, connect=min(5, self.config.timeout)),
-                    event_hooks={'request': [self._guard_request], 'response': [self._guard_response]}) as http:
+                    event_hooks={'request': [self._guard_request],
+                                 'response': [self._guard_response, budget.guard_response]}) as http:
                     async with openai.AsyncOpenAI(api_key=os.environ[self.config.api_key_env],
                         base_url=self.config.base_url, organization='', project='', max_retries=0,
                         timeout=self.config.timeout, http_client=http) as client:
@@ -71,6 +83,8 @@ class _SDKAdapter:
         except TimeoutError:
             raise ModelFailure('model_timeout') from None
         except Exception as exc:
+            if budget is not None and budget.error is not None:
+                raise ModelFailure('model_resource_limit') from None
             code = 'model_timeout' if type(exc).__name__ == 'APITimeoutError' else 'model_failure'
             raise ModelFailure(code) from None
 
@@ -78,11 +92,10 @@ class _SDKAdapter:
         # 无服务端 schema 能力也保留严格本地 Parser；不自动切换到别的接口。
         return request.instructions + '\n仅输出 JSON，必须符合此 Schema：\n' + json.dumps(request.schema, ensure_ascii=False)
 
-    def _result(self, text, usage=None):
-        if not isinstance(text, str) or not text.strip() or len(text.encode('utf-8')) > 65536:
+    def _result(self, text, usage, *, api_key):
+        if not isinstance(text, str) or not text.strip() or len(text.encode('utf-8')) > MODEL_TEXT_BYTES:
             raise ModelFailure('model_invalid_response')
-        if os.environ[self.config.api_key_env] in text:
-            raise ModelFailure('model_secret_rejected')
+        reject_response_credential(text, api_key)
         counters = {}
         for key, aliases in {'input_tokens': ('input_tokens', 'prompt_tokens'),
                              'output_tokens': ('output_tokens', 'completion_tokens')}.items():
@@ -116,7 +129,7 @@ class OpenAIResponsesAdapter(_SDKAdapter):
         if (not messages or any(item.type not in ('message', 'reasoning') for item in response.output)
             or any(not item.content or any(c.type != 'output_text' for c in item.content) for item in messages)):
             raise ModelFailure('model_nontext_output')
-        return self._result(response.output_text, response.usage)
+        return self._result(response.output_text, response.usage, api_key=client.api_key)
 
 
 class ChatCompletionsAdapter(_SDKAdapter):
@@ -146,4 +159,4 @@ class ChatCompletionsAdapter(_SDKAdapter):
             raise ModelFailure('model_incomplete')
         if message.tool_calls or message.function_call or message.refusal:
             raise ModelFailure('model_nontext_output')
-        return self._result(message.content, response.usage)
+        return self._result(message.content, response.usage, api_key=client.api_key)

@@ -10,13 +10,13 @@ A plan, a successful tool response, or an exit code is not proof that a user's t
 
 The default source is synthetic Mock data, not your screen. Replay reads a local historical, redacted record and cannot establish the current desktop or current permission.
 
-Only explicitly enabled Live mode connects to a separately prepared Windows-MCP service. ControlStatus reports controller state; Screenshot obtains image content; Snapshot supplies UI-tree/window/display information and may report incomplete observations. The standard Live sequence is ControlStatus, Screenshot, then Snapshot, after initialization and tool discovery.
+Only explicitly enabled Live mode connects to a separately prepared Windows-MCP service. ControlStatus reports controller state; Screenshot obtains image content; Snapshot supplies UI-tree/window/display information and may report incomplete observations. Live checks ownership before Screenshot and again after each capture. A late result can arrive after takeover. The client can discard it, but cannot revoke capture work already underway.
 
 The Agent currently bases its interpretation on UI structure and tool text, not visual understanding. Screenshot image data is handled briefly in memory and omitted during normalization. Raw window/control text may exist in internal observations while the program processes a Live result.
 
 Not seeing a window does not prove it is absent or its application is uninstalled. Recognizing a control does not verify that it can be clicked. A tree without an explicit truncation marker is not proof of completeness.
 
-The separate manual integration launcher starts a real Windows-MCP test process and later attempts to clean up only its own process tree. It must not be confused with the Agent client, which never auto-starts that service. Existing instances or occupied ports cause the launcher to stop, not terminate unrelated processes. Interrupted runs may need manual ownership checks.
+The manual integration launcher can start a real Windows-MCP test service within a Windows Job Object dedicated to that run. Existing instances or occupied ports block startup. A forced PowerShell exit closes the Job handle, which causes Windows to terminate Job members. Interrupted runs without cleanup confirmation require manual verification of process ownership and port state. The standard Agent client connects to an existing service. See the [manual Live procedure](docs/installation-windows.md#11-可选真实桌面观察的边界).
 
 ## Privacy and Data Handling
 

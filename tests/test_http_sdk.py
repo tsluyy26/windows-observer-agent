@@ -112,7 +112,7 @@ class SDKHTTPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('notifications/initialized', self.requests)
         self.assertEqual(self.requests.count('tools/list'), 2)
         self.assertEqual([x for x in self.requests if x in ('ControlStatus','Screenshot','Snapshot','Click')],
-                         ['ControlStatus', 'Screenshot', 'Snapshot'])
+                         ['ControlStatus', 'Screenshot', 'ControlStatus', 'Snapshot', 'ControlStatus'])
         self.assertIn('DELETE', self.requests)
         self.assertTrue(all(client.is_closed for client in self.clients))
 

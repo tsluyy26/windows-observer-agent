@@ -66,6 +66,13 @@ class PlanningTests(unittest.TestCase):
                 plan = self.plan(self.goal, self.scene, self.mock(response=json.dumps(payload)))
                 self.assertEqual(plan.fallback_reason, 'invalid_plan')
 
+    def test_escaped_terminal_controls_in_plan_trigger_safe_fallback(self):
+        payload = self.response()
+        payload['confirmations'].append('\x1b[2J')
+        plan = self.plan(self.goal, self.scene, self.mock(response=json.dumps(payload)))
+        self.assertEqual(plan.fallback_reason, 'invalid_plan')
+        self.assertTrue('\x1b' not in ''.join(plan.confirmations), 'Fallback exposed a terminal control')
+
     def test_duplicate_keys_and_markdown_rejected(self):
         raw = self.mock().generate(self.build(self.goal, self.scene))
         for reply in ('{"executable":true,' + raw[1:], '```json\n' + raw + '\n```'):

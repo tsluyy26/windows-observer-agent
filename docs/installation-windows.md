@@ -2,7 +2,7 @@
 
 适用版本：Windows Observer Agent v0.4.1。面向 Windows 11 / PowerShell 用户，推荐先完成离线体验，再决定是否配置模型或真实桌面观察。
 
-> 验证范围（2026-11-02）：本指南依据真实代码、pyproject.toml、uv.lock、CLI 与本机 UV 0.13.6 帮助整理。已有环境中实际检查了六种离线 CLI 用法；**没有在干净 Windows 上安装 UV/Python、创建 .venv 或下载依赖**。下面安装步骤是待验收的候选流程，不能当成干净机安装成功记录。最近完整测试 151/151 来自前一轮，本轮没有重复运行全套。
+> 验证范围（2026-11-02）：本指南依据真实代码、pyproject.toml、uv.lock、CLI 与本机 UV 0.13.6 帮助整理。已有环境中实际检查了六种离线 CLI 用法；**没有在干净 Windows 上安装 UV/Python、创建 .venv 或下载依赖**。下面安装步骤是待验收的候选流程，不能当成干净机安装成功记录。指南编写时为 151/151；冻结前最终本地复测为 240/240。
 
 ## 目录
 
@@ -119,7 +119,7 @@ pyproject.toml 的基础 dependencies 为空。纯规则、Mock/Replay 和 Mock 
 | 只体验默认规则/Mock LLM/配置验证 | 基础环境 |
 | 连接已准备的 MCP 服务 | 增加 live extra |
 | 调用外部模型 | 增加 llm extra |
-| 完整 151 项 SDK/脚本验收 | live + llm，并安装 PowerShell 7 |
+| 完整离线 SDK/脚本验收 | live + llm，并安装 PowerShell 7 |
 
 以下同步可能访问包索引、下载文件或改变 .venv；不是本轮已经执行的步骤：
 
@@ -204,7 +204,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ~~~
 
-最近一次发布副本验收为 151 项全部通过，没有错误或跳过；本轮没有重跑全套。无 pwsh 或可选 SDK 时会有 skip，不能把带跳过的 OK 当作完整验收。
+冻结前本地全量复测为 240 项全部通过，没有错误或跳过；本轮没有重跑全套。无 pwsh 或可选 SDK 时会有 skip，不能把带跳过的 OK 当作完整验收。
 
 测试可启动安全的 Python/PowerShell 测试宿主；不启动真实 Windows-MCP。tests/Test-AgentOutput.ps1 只产生合成输出，test_powershell.py 显式传入测试进程的 sys.executable；它不是 scripts/Test-Live.ps1 的真实启动入口。
 
@@ -301,7 +301,7 @@ api_key_env 必须与 EXAMPLE_MODEL_KEY 一致。环境变量的值会在当前�
 | --locked 报不一致 | 停止并核对源码与锁文件是否来自同一版本；不要自动重生成锁文件来掩盖问题 |
 | 可选 SDK 缺失/版本错误 | 按选择同步锁定 extras；本项目校验固定 SDK，不能随意升级；只读任务中不要安装 |
 | 同步后 SDK 消失 | 之前的 sync 未保留所需 extra；下次明确写出所有要保留的 extra |
-| 测试出现 skipped | 核对 live/llm extras 和 PowerShell 7；带跳过不等于完整 151 项验收 |
+| 测试出现 skipped | 核对 live/llm extras 和 PowerShell 7；带跳过不等于完整离线验收 |
 | Provider 配置验证成功，实际请求失败 | 本地验证不检查 Key、额度、模型和网络；真实兼容性尚待联调 |
 | Provider 配置/授权无效 | 核对选择名、密钥环境变量、共享/外部启用/完整端点确认；不要输出密钥诊断 |
 | 模型返回 rule-fallback | 查看固定原因码；规则支持范围有限，不能当作外部模型成功 |
@@ -324,27 +324,60 @@ api_key_env 必须与 EXAMPLE_MODEL_KEY 一致。环境变量的值会在当前�
 
 本节是高级使用说明，不是安装验收必做步骤；本轮没有运行任何真实 MCP 操作。Windows-MCP 0.8.8 需单独由用户准备，Agent 不安装、升级或启动它。
 
-连接现有服务需要有效 WOA_MCP_TOKEN（至少 32 个 ASCII 非空白字符）。在已确认服务唯一、认证安全、输入钩子无冲突的前提下，CLI 形态为：
+Agent 从 `WOA_MCP_TOKEN` 读取 Token 并作为 Bearer 发送。Windows-MCP 0.8.8 服务端须单独配置 `WINDOWS_MCP_AUTH_KEY`，两端使用相同的值。仅设置客户端变量或握手成功，无法证明服务端要求认证。下方直接连接命令适用于已核实服务归属、认证状态和输入钩子无冲突的部署。三项认证验收由后续的手动脚本执行。
 
 ~~~powershell
 # 真实桌面读取：仅供后续明确授权时执行，不属于离线快速开始
 .\.venv\Scripts\python.exe -B -m windows_observer_agent --live --endpoint http://127.0.0.1:8765/mcp
 ~~~
 
-它顺序握手/工具发现，再调用 ControlStatus、Screenshot、Snapshot，仅三工具白名单；user、控制器异常或持续拒绝时停止，不抢控制权。截图数据短暂驻留内存，标准化后丢弃原图，不进行视觉分析。
+发现工具后依次调用 `ControlStatus → Screenshot → ControlStatus → Snapshot → ControlStatus`。检测到接管、控制代次异常或复核失败时，客户端丢弃本轮采集内容并停止。复核只反映采样时刻。超时或取消可以停止等待，已经开始的服务端采集仍可能完成。 已停止的观察不会在用户空闲后自动恢复。截图数据短暂驻留内存，标准化后丢弃原图，不进行视觉分析。
 
-scripts/Test-Live.ps1 则不同：**直接执行会启动真实测试服务，并在结束时清理本轮服务进程树**。它要求发布副本自己的 .venv 及锁定 live 依赖，不会自动复用任意外层测试解释器。只在用户退出 Codex、确认原 stdio 服务已退出后，于独立 PowerShell 7 中运行；不要同时安装两个服务实例的输入钩子。
+`scripts/Test-Live.ps1` 直接执行会启动真实测试服务，须单独授权。它要求发布副本自己的 `.venv` 及锁定 live 依赖。只在退出 Codex、确认原 stdio 服务退出后，于独立 PowerShell 7 中运行。Windows Job Object 或创建时加入 Job 失败时，脚本中止。
 
-如未来单独进行手动联调，可交互指定已安装 Windows-MCP 0.8.8 的解释器：
+获得单独授权后，可先执行认证专项验收。以下模式会启动真实服务并保留上游控制保护，认证阶段只进行 MCP 初始化和工具发现，不调用观察工具。
 
 ~~~powershell
 $serverPython = Read-Host '输入已安装 Windows-MCP 0.8.8 的 python.exe 完整路径'
-pwsh -NoProfile -File .\scripts\Test-Live.ps1 -ServerPython $serverPython
+pwsh -NoProfile -File .\scripts\Test-Live.ps1 -ServerPython $serverPython -AuthenticationOnly
 ~~~
 
-脚本核对版本、不下载服务，生成随机 Bearer Token、只绑定 127.0.0.1:8765，三工具范围由启动参数指定，保留控制保护。live-server.toml 不能当作独立安全启动配置；它须与认证环境变量、绑定和 --tools 参数一起使用。旧实例或端口占用时停止，不自动杀占用者。
+脚本核对版本并为本轮生成随机 Token，服务仅绑定 `127.0.0.1:8765`，由 `--tools` 限定三项工具。`live-server.toml` 须配合认证变量、回环绑定和启动参数使用。若发现旧实例、端口占用或无法核实身份，脚本停止。
 
-成功需同时看到 Live 观察完成 True、LIVE_TEST_PASS，以及服务/监听退出确认。若出现 LIVE_TEST_STOPPED，则观察受保护或不完整；不应绕过保护。退出码 3 或清理未确认时，保留脚本给出的本轮 PID/启动时间，使用任务管理器核对仅本轮服务及子进程和端口归属，不按 Python/MCP 名称批量结束。Ctrl+C 后也应核对，因为不能保证所有中断路径都清理成功。
+服务与服务解释器的版本探测使用独立环境块。启动器从 Windows 已知目录取值。必要目录无法核对时中止。
+
+| 服务变量 | 保留理由与验证 |
+| --- | --- |
+| `SYSTEMROOT`、`WINDIR` | 从 Windows 已知系统目录取得，供 Windows 运行库加载及上游控制提示字体定位。受控子进程验证目录和系统 DLL 可用。 |
+| `USERPROFILE` | 从 Windows 已知用户目录取得，供 Python 展开 `~` 及上游配置路径初始化。受控子进程验证 `Path.home()`。 |
+| `LOCALAPPDATA` | 从 Windows 已知本地应用数据目录取得，供 FastMCP 的默认应用数据路径和临时目录定位。受控子进程核对实际路径。 |
+| `TEMP`、`TMP` | 同指向上述本地应用数据目录下现有的 `Temp`，供 Python 和上游 comtypes 使用。受控子进程验证 `tempfile` 解析结果。 |
+| `WINDOWS_MCP_AUTH_KEY` | 由启动器为本轮随机生成，仅在服务环境中注入。受控子进程验证值与本轮令牌一致。 |
+| `ANONYMIZED_TELEMETRY=false`、`WINDOWS_MCP_WATCHDOG=off` | 维持脚本既有的 Windows-MCP 0.8.8 启动配置。 |
+| `FASTMCP_STREAMABLE_HTTP_PATH=/mcp`、`FASTMCP_ENV_FILE=\\.\NUL` | 保留固定回环 HTTP 入口，并将 FastMCP 的 dotenv 读取指向 Windows 空设备。 |
+
+`ANONYMIZED_TELEMETRY=false` 由脚本在 Windows-MCP 0.8.8 导入前注入。这个值关闭上游 PostHog 的初始化，`FALSE` 等大小写变体也有效，前后空白或缺失值会走启用分支。独立启动的服务须在它自己的进程环境中设置。启用时，上游可能在 `~/.windows-mcp/.windows-mcp-user-id` 保存 UUID，并发送包含异常正文和栈路径的诊断。脚本的受控验证未使用真实服务或外部接收端。见 [遥测与隐私边界](PRIVACY_AND_DATA_HANDLING.md#windows-mcp-telemetry)。
+
+版本探测只带六个 Windows 路径变量。账户目录可能含用户名，脚本不打印环境块。服务使用解释器绝对路径，不传入父终端的 `PATH`、代理设置、自定义 Provider 密钥或 Python/调试覆盖。`APPDATA` 和 `PROGRAMDATA` 在上游另有用途，当前启动与只读工具链未发现需要把它们传入。Agent、认证客户端和自定义 Adapter 保留自己的环境行为。独立环境块也不改变服务进程的 Windows 用户权限。
+
+已在受控 Windows 子进程上验证虚拟环境、基础解释器、路径值和后代继承，并在本机验证 Windows-MCP 0.8.8 的发行包元数据探测。真实服务启动和认证仍待单独联调。
+
+如需独立复现 I1 离线审计，可使用已安装 Windows-MCP 0.8.8 的解释器。此命令只加载指定上游函数及实际遥测 SDK，替换桌面、服务运输和 HTTP 发送。普通 unittest 发现无需安装该独立服务。
+
+~~~powershell
+# $serverPython 为已安装 Windows-MCP 0.8.8 的解释器绝对路径
+& $serverPython -I -B -S .\tests\i1_upstream_telemetry_audit.py
+~~~
+
+每次探测前检查监听 PID、进程创建时间、可执行文件路径、父进程链、启动参数和本轮 Job 成员资格。先对 `/mcp` 发送无 Token 和错误 Token 的有效 MCP 初始化请求，两次均须返回 `401` 和 Bearer challenge，且不能返回会话 ID。然后用正确 Token 完成 SDK 初始化和工具发现，工具列表须恰好为 `ControlStatus`、`Screenshot`、`Snapshot`。重定向、网络错误及非预期 HTTP 状态均使验收失败。认证专项成功以 `LIVE_AUTH_PASS`、`LIVE_CLEANUP_PASS` 和退出码 0 为准。
+
+如另行授权真实桌面观察，去掉 `-AuthenticationOnly`。认证通过后脚本才进入观察阶段，并在正式连接前再次复核监听身份。观察和清理均成功时，会输出 `LIVE_AUTH_PASS`、观察完成 True、`LIVE_TEST_PASS` 及 `LIVE_CLEANUP_PASS`。若出现 `LIVE_TEST_STOPPED`，观察因保护机制停止或结果不完整。手动脚本显示校验后的观察摘要、错误类别和清理状态。完整文本和 JSON 报告请在已单独授权且已有服务的会话中使用上方 Python CLI。普通错误以阶段和固定类别提示，内部堆栈、异常原文、候选解释器路径与子进程原始输出不会作为提示转发。退出码 1 表示观察不完整，2 表示配置、启动、认证或执行失败，3 表示清理未确认。Python CLI 收到取消时返回 130。
+
+手动脚本用 `CreateProcessW` 在创建时将服务、认证探测和观察进程加入本轮私有 Job，常规子进程会继承成员资格。脚本持有非继承的 Job 句柄并启用 `KILL_ON_JOB_CLOSE`。正常清理用 Job 成员数、原始根进程句柄和端口监听状态确认结果，即使根进程先退出也涵盖 Job 内后代。无法访问、超时或仍有监听时，输出对应 `LIVE_CLEANUP_*` 原因并返回退出码 3。归属不明的进程留给人工核对。
+
+若 PowerShell 被强制结束，Windows 关闭 Job 句柄并终止成员。这个机制只覆盖 Job 内进程，无法核实 Job 外部的进程或代理创建的进程。强制结束、Ctrl+C 或出现退出码 3 后，若没看到 `LIVE_CLEANUP_PASS`，请在恢复 Codex 前用任务管理器和端口状态核对本轮 PID、创建时间、路径与端口归属。当前已用本机受控进程验证宿主被终止、后代回收和回环端口释放，真实 Windows-MCP 异常退出仍待单独验证。
+
+接口依据：[Microsoft Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[创建时分配 Job](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)、[进程句柄和 PID](https://learn.microsoft.com/en-us/windows/win32/procthread/process-handles-and-identifiers)。
 
 只有确认本轮服务及监听已退出后再恢复 Codex；无需修改原 MCP 配置。此处没有提供批量终止或关闭控制保护的命令。
 
@@ -360,9 +393,9 @@ pwsh -NoProfile -File .\scripts\Test-Live.ps1 -ServerPython $serverPython
 | --validate-provider-config | __main__.py、providers.load_provider_config | 实际验证示例，退出 0，不读密钥或联网 |
 | --help | argparse 参数定义 | 实际验证，退出 0 |
 | 脱敏 fixture Replay | replay.py、本地 fixture、CLI | 实际验证，退出 1，符合样本预期 |
-| unittest 全套 | tests/ 与 unittest 标准发现机制 | 本轮未重跑；上一轮发布副本 151 项全部通过 |
+| unittest 全套 | tests/ 与 unittest 标准发现机制 | 本轮未重跑；冻结前本地全量复测 240/240 |
 | 外部模型命令 | CLI 授权、ProviderAccess、SDK Adapter | 仅代码核对，无真实请求/计费 |
-| Live CLI / 手动服务脚本 | transports.py、live.py、Test-Live.ps1 | 仅代码核对；v0.3 有一次历史真实联调，本轮未运行 |
+| Live CLI / 手动服务脚本 | transports.py、live.py、live_auth.py、Test-Live.ps1、LiveProcessJob.cs | S5 有内存认证验证。S8 有受控 Windows 进程与替身测试。真实 Windows-MCP 的认证与异常退出均待单独验收，v0.3 的历史观察未覆盖这两项。 |
 
 本轮离线检查覆盖 16 个实际加载的应用模块，全部来自发布副本；未导入 mcp/openai SDK，使用内存审计拒绝网络和进程调用。该结果不能替代干净环境安装、全套测试、真实模型兼容或发行包验收。
 

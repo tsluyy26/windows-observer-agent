@@ -23,14 +23,23 @@ Assert-Throws { Assert-LivePreflight 8765 } '被占用'
 function Get-PortListeners { return @() }
 Assert-LivePreflight 8765
 
-# 清理只使用传入的本轮 Process 对象；替身验证 whole-tree=true。
-$script:killCalls = 0
-$fake = [pscustomobject]@{ HasExited = $false }
-$fake | Add-Member ScriptMethod Kill { param($EntireTree) if (-not $EntireTree) { throw 'Expected entire tree' }; $script:killCalls++ }
-$fake | Add-Member ScriptMethod WaitForExit { param($Milliseconds) return $true }
-$fake | Add-Member ScriptMethod Dispose { }
-Stop-TestServer $fake
-if ($script:killCalls -ne 1) { throw 'Cleanup did not use owned process object' }
+# 只用本轮 Job 和原始根进程对象。即使根进程已退出也必须清理整个 Job。
+$script:stopCalls = 0
+$script:disposeCalls = 0
+$fake = [pscustomobject]@{ HasExited = $true }
+$fake | Add-Member ScriptMethod Dispose { $script:disposeCalls++ }
+$ownedJob = [pscustomobject]@{}
+$ownedJob | Add-Member ScriptMethod Stop {
+    param($Milliseconds, $Root)
+    if ($Milliseconds -ne 5000 -or -not [object]::ReferenceEquals($Root, $fake)) {
+        throw 'Expected owned process and bounded wait'
+    }
+    $script:stopCalls++
+    return $true
+}
+$ownedJob | Add-Member ScriptMethod Dispose { $script:disposeCalls++ }
+Stop-TestServer $ownedJob $fake
+if ($script:stopCalls -ne 1 -or $script:disposeCalls -ne 2) { throw 'Cleanup did not use and dispose owned handles' }
 
 # 语法检查，不执行脚本的入口。
 $tokens = $null

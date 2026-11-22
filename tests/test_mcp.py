@@ -56,6 +56,18 @@ def records():
     ]
 
 
+
+@contextlib.contextmanager
+def mocked_replay_file(text):
+    data = text.encode('utf-8')
+    source = io.BytesIO(data)
+    source.fileno = lambda: 123
+    with patch.object(Path, 'open', return_value=source), \
+         patch('windows_observer_agent.resource_limits.os.fstat',
+               return_value=types.SimpleNamespace(st_mode=0o100644, st_size=len(data))):
+        yield
+
+
 class ParsingTests(unittest.TestCase):
     def setUp(self):
         self.adapter = importlib.import_module('windows_observer_agent.mcp_adapter')
@@ -167,6 +179,62 @@ class ParsingTests(unittest.TestCase):
             self.assertEqual(main(['--replay-file', str(path), '--json']), 1)
         self.assertEqual(json.loads(out.getvalue())['scene']['raw']['kind'], 'replay')
 
+    def test_replay_projects_mislabeled_input_before_both_reports(self):
+        from windows_observer_agent.__main__ import main
+        data = {'schema': 'woa.replay.v1', 'redacted': True, 'records': records(),
+                'unknown_metadata': {'notes': ['PRIVATE_TOP_LEVEL']}}
+        for record in data['records']:
+            record['redacted'] = True
+        record = data['records'][1]
+        record['private_record'] = 'PRIVATE_RECORD'
+        record['result']['structuredContent'] = {'nested': [{'value': 'PRIVATE_NESTED'}]}
+        record['result']['content'].append({'type': 'image', 'data': 'PRIVATE_IMAGE'})
+        record['result']['content'][0]['text'] = (
+            SNAPSHOT.replace('PrivateDoc', r'C:\SyntheticPrivatePath\PrivateDoc.txt')
+            .replace('button "PrivateButton"', 'SyntheticPrivateType "PrivateButton"')
+        )
+        path = r'C:\SyntheticReplayLocation\capture.json'
+        for options in ([], ['--json']):
+            with self.subTest(options=options), mocked_replay_file(json.dumps(data)), \
+                 contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                status = main(['--replay-file', path, *options])
+            self.assertIn(status, (0, 1))
+            report = out.getvalue()
+            for value in ('PrivateDoc', 'PrivateButton', 'PrivateText', 'secret-value',
+                          'SyntheticPrivatePath', 'SyntheticReplayLocation', 'SyntheticPrivateType',
+                          'PRIVATE_TOP_LEVEL', 'PRIVATE_RECORD', 'PRIVATE_NESTED', 'PRIVATE_IMAGE'):
+                self.assertTrue(value not in report + err.getvalue(), 'Replay exposed a private field')
+            self.assertIn('redacted-window-1', report)
+            if options:
+                output = json.loads(report)['scene']
+                self.assertTrue(output['observation_success'])
+                self.assertEqual(output['active_window']['controls'][1]['type'], 'edit')
+                self.assertEqual(output['raw']['kind'], 'replay')
+            else:
+                self.assertIn('脱敏历史回放报告', report)
+
+    def test_replay_bad_files_never_echo_private_input_or_path(self):
+        from windows_observer_agent.__main__ import main
+        data = {'schema': 'woa.replay.v1', 'redacted': True, 'records': records()}
+        for record in data['records']:
+            record['redacted'] = True
+        bad_record = deepcopy(data)
+        bad_record['records'][1].pop('result')
+        bad_args = deepcopy(data)
+        bad_args['records'][1]['arguments']['region'] = 'PRIVATE_REPLAY_INPUT'
+        for raw in ('{"note":"PRIVATE_REPLAY_INPUT",', json.dumps(dict(data, redacted=False)),
+                    json.dumps(bad_record), json.dumps(bad_args)):
+            for options in ([], ['--json']):
+                with mocked_replay_file(raw), \
+                     contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                    self.assertEqual(main(['--replay-file', 'PRIVATE_REPLAY_PATH.json', *options]), 2)
+                self.assertFalse(out.getvalue())
+                self.assertTrue('PRIVATE_' not in err.getvalue(), 'Replay rejection exposed private input')
+        with patch.object(Path, 'open', side_effect=OSError('PRIVATE_REPLAY_PATH')), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(main(['--replay-file', 'PRIVATE_REPLAY_PATH']), 2)
+        self.assertTrue('PRIVATE_' not in err.getvalue(), 'Replay read error exposed the path')
+
     def test_offline_modes_first_import_in_fresh_interpreter(self):
         # 子进程仅为测试宿主；审计钩子在应用首次导入前安装。
         script = '''
@@ -235,7 +303,7 @@ print('OFFLINE_AUDIT_PASS')
         for record in data['records']:
             record['redacted'] = True
         data['records'][1]['result'] = {'isError': True, 'content': []}
-        with patch.object(Path, 'read_text', return_value=json.dumps(data)):
+        with mocked_replay_file(json.dumps(data)):
             scene = build_scene(ReplayClient(Path('unused.json')).collect())
         self.assertFalse(scene.observation_success)
         self.assertTrue(scene.errors)

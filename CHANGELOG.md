@@ -2,9 +2,15 @@
 
 This file uses the basic organization of [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/).
 
-The source repository is now public. No formal GitHub Release is established by that fact. The version sections below are reconstructed development milestones, not GitHub Releases or verified publication dates. Their design records are dated 2026-11-01; no release dates are invented. An Unreleased entry describes implemented changes awaiting publication, not planned functionality.
+The v0.4.1 scope was frozen on 2026-11-21. Earlier sections describe development milestones.
 
-## Unreleased
+## 0.4.1
+
+[English release notes](docs/release-notes-v0.4.1.md) · [中文发布说明](docs/release-notes-v0.4.1.zh-CN.md)
+
+- I2: Documented the repository’s existing GitHub private vulnerability reporting channel in the security policy and both READMEs.
+
+- I3: Live now rechecks control state and generation after each capture, discards provisional data on failure and rejects late tool responses after timeout or cancellation. Controlled offline tests cover these cases. Real Windows-MCP takeover timing remains pending.
 
 ### CI
 
@@ -21,6 +27,19 @@ The source repository is now public. No formal GitHub Release is established by 
 - A Windows source-installation guide with explicit unverified clean-install steps and optional model/Live boundaries.
 - CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, DISCLAIMER, and AGENTS guidance, plus this changelog and README navigation.
 
+### Security
+
+- Verify I1 in an opt-in offline audit of the installed Windows-MCP 0.8.8 telemetry implementation. Check the existing PostHog opt-out, persistent identifiers, exception payloads, and prepared HTTP requests without launching a desktop service. Document the independent-service and tracing boundaries.
+- Fix S7 by passing a fresh environment to the manual Live server and its version probe. Use Windows-known paths and per-run authentication, exclude inherited credentials and runtime overrides, and suppress the project working directory's dotenv input to FastMCP.
+- Fix S9 with stage-based CLI diagnostics, projected report errors, and a validated manual Live summary. Render PowerShell failures from fixed categories and preserve cleanup outcomes without forwarding raw exception or child-process text.
+- Fix S8 in the manual Live launcher. Assign the server, authentication probes, and observer to a private Windows Job Object at creation. Confirm that Job membership has emptied, the root has exited, and the port has no listener before reporting cleanup success. Windows closes the Job on forced host exit. Local coverage uses controlled processes and scripted failure doubles. Real Windows-MCP shutdown remains unverified.
+- S6: Bound MCP and built-in model HTTP response bodies during reads, share MCP session budgets across SSE reconnects, and cap discovery per page and in total. Bound Mock and Replay file reads and check JSON shape before decoding objects.
+- S4: Restrict Live rule report control types to recognized labels and use `unknown` for unsupported or missing types. Apply the same filter to text and JSON, including retained tool records.
+- S1: Project Replay records before building reports, filtering unrecognized fields and omitting the local input path.
+- S2: Reject the MCP Token environment variable in model Provider configuration.
+- S3: Check model request bodies before sending and reject credential echoes in decoded JSON responses. Reject terminal control characters in plan text.
+- S5: Gate manual Live observation on the verified listener identity, rejection of missing and wrong Bearer tokens, and successful authenticated MCP initialization and discovery of exactly the expected tools. Add `-AuthenticationOnly` for separate acceptance without calling observation tools.
+
 ### Changed
 
 - Expanded ignore rules for local environments, credentials/configuration, logs, caches, build outputs, and narrowly scoped temporary observation artifacts, preserving public examples and fixtures.
@@ -33,9 +52,9 @@ The source repository is now public. No formal GitHub Release is established by 
 
 ### Verification Note
 
-After the v0.4.1 development milestone, independent release-copy acceptance initially passed 147 of 148 tests with one portability failure. Following the fix and three additional cases, the latest full run passed 151 tests with no failures, errors, or skips. This later result is not the original v0.4.1 development count. The maintenance-document task did not rerun the functional suite.
+After the v0.4.1 development milestone, independent release-copy acceptance initially passed 147 of 148 tests with one portability failure. Following the fix and three additional cases, the portability-fix run passed 151 tests with no failures, errors, or skips. This later result is not the original v0.4.1 development count. The maintenance-document task did not rerun the functional suite.
 
-## 0.4.1 — Development milestone
+### Original 0.4.1 provider milestone
 
 ### Added
 
@@ -59,6 +78,12 @@ After the v0.4.1 development milestone, independent release-copy acceptance init
 - Rejected secret echoes and unsafe response shapes without switching to another provider.
 
 Real third-party model API compatibility was not established by these changes; SDK contracts were tested with in-memory HTTP.
+
+### Freeze evidence and limitations
+
+Recorded local suite totals after S1–S3, S5, S4, S6, S8, S9 and S7 were 159, 169, 175, 195, 205, 219 and 223 respectively. I1 had seven separate opt-in checks. The final I3 offline rerun passed 240/240 in 35.439 seconds with zero failures, errors or skips. Its preceding run passed 239/240 with one intermittent S8 Job-count failure. No tests were rerun for the freeze.
+
+Real-service authentication, restricted startup, takeover and shutdown checks, clean Windows installation, a real-provider matrix, wheel/EXE testing and end-to-end private reporting were waived as v0.4.1 release gates. They remain unverified.
 
 ## 0.4 — Development milestone
 
@@ -143,6 +168,6 @@ No real MCP service, model request, or desktop execution was part of this milest
 | v0.3 | 83 at the final recorded development/integration-fix stage; earlier stages had fewer |
 | v0.4 | 117 passing tests |
 | v0.4.1 original development | 148 passing tests |
-| Later independent release-copy acceptance | 151 passing tests after the portability fix; see Unreleased |
+| Later independent release-copy acceptance | 151 passing tests after the portability fix; see 0.4.1 |
 
 Sources: [v0.1 design](docs/design-and-plan.md), [v0.2 record](docs/v0.2-review-and-design.md), [v0.3 record](docs/v0.3-design.md), [v0.4 record](docs/v0.4-design.md), [v0.4.1 record](docs/v0.4.1-design.md), and the maintainer's internal development/task records. Historical documents retain their original scope; they are not current release announcements.

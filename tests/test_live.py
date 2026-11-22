@@ -7,7 +7,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from test_mcp import SNAPSHOT, envelope
+from test_mcp import SNAPSHOT, envelope, mocked_replay_file
 from windows_observer_agent.mcp_client import MCPClient, MCPConnectionError, MCPPolicyError
 
 
@@ -43,7 +43,8 @@ class LiveFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_initialize_discover_control_screenshot_snapshot_in_order(self):
         transport = LiveTransport()
         raw = await self.run_live(transport)
-        self.assertEqual(transport.events, ['initialize', 'list_tools', 'ControlStatus', 'Screenshot', 'Snapshot', 'close'])
+        self.assertEqual(transport.events, ['initialize', 'list_tools', 'ControlStatus', 'Screenshot',
+                                            'ControlStatus', 'Snapshot', 'ControlStatus', 'close'])
         self.assertTrue(raw.metadata['observation_complete'])
         self.assertTrue(raw.snapshot['success'])
         self.assertEqual(raw.kind, 'mcp')
@@ -95,6 +96,112 @@ class LiveFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_incomplete_snapshot_does_not_report_success(self):
         raw = await self.run_live(LiveTransport(tree='UI Tree: skipped'))
         self.assertFalse(raw.metadata['observation_complete'])
+
+
+def public_type_sample(*types):
+    from windows_observer_agent.mcp_adapter import adapt_records
+    from test_mcp import records
+
+    data = records()
+    header = SNAPSHOT.split('    ├── (10,20)', 1)[0]
+    rows = [f'    ├── ({10 + index},20) {kind} "synthetic-control"'
+            for index, kind in enumerate(types)]
+    data[1]['result'] = envelope(header + '\n'.join(rows))
+    return adapt_records(data, source='MCP:test', kind='mcp')
+
+
+class LiveTypeRedactionTests(unittest.TestCase):
+    def public_controls(self, *types):
+        from windows_observer_agent.live import public_live_observation
+        from windows_observer_agent.scene_model import build_scene
+
+        public = public_live_observation(public_type_sample(*types))
+        return build_scene(public).active_window.controls
+
+    def test_s4_english_uia_types_keep_supported_controls_and_properties(self):
+        controls = self.public_controls('button', 'edit', 'Split Button', 'Scroll Bar', 'Hyperlink')
+        self.assertEqual([control.type for control in controls],
+                         ['button', 'edit', 'split button', 'scroll bar', 'hyperlink'])
+        self.assertEqual(controls[0].properties, {
+            'coordinates': [10, 20], 'coordinate_space': 'virtual-desktop', 'metadata_text': '',
+        })
+        self.assertEqual(controls[0].name, 'redacted-control')
+        self.assertEqual(controls[0].provider, 'Windows-MCP.semantic-tree')
+        self.assertIsNone(controls[0].click_verified)
+
+    def test_s4_confirmed_chinese_types_preserve_localized_labels(self):
+        types = ('按钮', '编辑', '编辑框', '菜单项', '选项卡项目', '拆分按钮', '滚动条', '复选框')
+        self.assertEqual([control.type for control in self.public_controls(*types)], list(types))
+
+    def test_s4_normalizes_case_and_whitespace_without_partial_matching(self):
+        controls = self.public_controls('  BuTToN   ', ' TAB   Item ', 'MENUITEM',
+                                        'but ton', 'button unknown', 'Ｂｕｔｔｏｎ')
+        self.assertEqual([control.type for control in controls],
+                         ['button', 'tab item', 'menuitem', 'unknown', 'unknown', 'unknown'])
+
+    def test_s4_unknown_and_missing_types_are_safe_and_malformed_rows_are_dropped(self):
+        from dataclasses import replace
+        from windows_observer_agent.live import public_live_observation
+        from windows_observer_agent.scene_model import build_scene
+
+        raw = public_type_sample('unrecognized', '', '   ', None, 17, ['invalid'])
+        row = ('\n    ├── (19,20) BROKEN_S4_ROW "'
+               '\n    ├── (20,20) button"missing separator"')
+        snapshot = raw.tool_results[-1]
+        snapshot['result']['content'][0]['text'] += row
+        scene = build_scene(public_live_observation(raw))
+        self.assertEqual([control.type for control in scene.active_window.controls], ['unknown'] * 6)
+        self.assertTrue('BROKEN_S4_ROW' not in repr(scene.raw), 'Malformed row reached public output')
+        records_with_bad_content = list(raw.tool_results)
+        records_with_bad_content[-1] = {**snapshot, 'result': envelope(None)}
+        bad_raw = replace(raw, tool_results=tuple(records_with_bad_content))
+        failed = build_scene(public_live_observation(bad_raw))
+        self.assertFalse(failed.observation_success)
+
+    def test_s4_final_text_and_json_filter_hostile_types_and_retained_records(self):
+        from dataclasses import replace
+        from windows_observer_agent.__main__ import main
+
+        sensitive = ('S4 Private Window Title', 'S4 Free Text', r'C:\S4Private\synthetic.txt',
+                     's4_test_only_credential_9384', 'Bearer sk-s4-fake-credential')
+        raw = public_type_sample('Button', *sensitive)
+        raw = replace(raw, metadata={'observation_complete': True})
+        for options in ([], ['--json']):
+            with self.subTest(options=options):
+                with patch('windows_observer_agent.live.collect_live', return_value=raw), \
+                     contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                    status = main(['--live', '--endpoint', 'http://127.0.0.1:8000/mcp', *options])
+                self.assertEqual(status, 0)
+                self.assertTrue(not any(marker in out.getvalue() + err.getvalue() for marker in sensitive),
+                                'A synthetic marker reached a public Live output')
+                if options:
+                    scene = json.loads(out.getvalue())['scene']
+                    self.assertEqual([c['type'] for c in scene['active_window']['controls']],
+                                     ['button'] + ['unknown'] * len(sensitive))
+                    self.assertTrue(scene['raw']['metadata']['output_redacted'])
+                    snapshot_text = scene['raw']['tool_results'][-1]['result']['content'][0]['text']
+                    self.assertIn('unknown "redacted-control"', snapshot_text)
+                else:
+                    self.assertEqual(out.getvalue().count('redacted-control (unknown)'), len(sensitive))
+
+    def test_s4_replay_and_model_projection_keep_existing_type_policy(self):
+        from pathlib import Path
+        from windows_observer_agent.planning_input import build_prompt
+        from windows_observer_agent.replay import ReplayClient
+        from windows_observer_agent.scene_model import build_scene
+
+        raw = public_type_sample('EDIT', 'Split Button', '选项卡项目')
+        scene = build_scene(raw)
+        prompt = build_prompt('打开窗口', scene)
+        self.assertEqual([x['type'] for x in prompt['data']['elements'].values() if x['kind'] == 'control'],
+                         ['edit', 'unknown', '选项卡项目'])
+
+        records = [dict(record, redacted=True) for record in raw.tool_results]
+        content = json.dumps({'schema': 'woa.replay.v1', 'redacted': True, 'records': records})
+        with mocked_replay_file(content):
+            replay = build_scene(ReplayClient(Path('synthetic.json')).collect())
+        self.assertEqual([control.type for control in replay.active_window.controls],
+                         ['EDIT', 'unknown', '选项卡项目'])
 
 
 class LivePolicyTests(unittest.TestCase):
